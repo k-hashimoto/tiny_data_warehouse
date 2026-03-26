@@ -1,5 +1,10 @@
 # Tiny Data Warehouse
 
+![Tiny Data Warehouse](./app.png)
+
+> [!WARNING]
+> **This is alpha-quality software.** It has not been adequately tested and may crash, corrupt data, or behave unexpectedly. Use at your own risk.
+
 **Concept: A minimal data warehouse you can try out effortlessly.** Tiny Data Warehouse is a lightweight desktop SQL client powered by [DuckDB](https://duckdb.org/), built with [Tauri](https://tauri.app/) and React. Designed for personal data exploration, local analytics, and seamless integration with [dbt](https://www.getdbt.com/).
 
 > 🇯🇵 [日本語版 README はこちら](./README.ja.md)
@@ -19,20 +24,6 @@
 
 ---
 
-## Tech Stack
-
-| Layer | Technology |
-|---|---|
-| Desktop Framework | [Tauri 2](https://tauri.app/) |
-| Database Engine | [DuckDB](https://duckdb.org/) |
-| Frontend | React 19 + TypeScript |
-| SQL Editor | [Monaco Editor](https://microsoft.github.io/monaco-editor/) |
-| UI Components | [shadcn/ui](https://ui.shadcn.com/) + Tailwind CSS v4 |
-| State Management | [Zustand](https://zustand-demo.pmnd.rs/) |
-| Build Tool | [Vite](https://vitejs.dev/) |
-
----
-
 ## Installation (macOS)
 
 Download the latest `.dmg` from the [Releases](../../releases) page and install the app.
@@ -42,6 +33,31 @@ Download the latest `.dmg` from the [Releases](../../releases) page and install 
 > ```bash
 > xattr -dr com.apple.quarantine /Applications/Tiny\ Data\ Ware\ House.app
 > ```
+
+---
+
+## Data Storage
+
+All data is stored locally under `~/.tdwh/`:
+
+```
+~/.tdwh/
+└── db/
+    ├── app.db   # Your main DuckDB database
+    └── dbt.db   # dbt output database (auto-detected)
+```
+
+No data is sent to any external server.
+
+---
+
+## dbt Integration
+
+Tiny Data Warehouse watches `~/.tdwh/db/dbt.db` for changes. When a `dbt run` completes, the Explorer panel automatically refreshes to show the latest models — no manual reload needed.
+
+To connect your dbt project, configure its output path to write `dbt.db` into `~/.tdwh/db/`.
+
+Sample dbt projects are available in the [`dbt_examples/`](./dbt_examples/) directory to help you get started.
 
 ---
 
@@ -77,26 +93,17 @@ The compiled app will be output to `src-tauri/target/release/bundle/`.
 
 ---
 
-## Data Storage
+## Tech Stack
 
-All data is stored locally under `~/.tdwh/`:
-
-```
-~/.tdwh/
-└── db/
-    ├── app.db   # Your main DuckDB database
-    └── dbt.db   # dbt output database (auto-detected)
-```
-
-No data is sent to any external server.
-
----
-
-## dbt Integration
-
-Tiny Data Warehouse watches `~/.tdwh/db/dbt.db` for changes. When a `dbt run` completes, the Explorer panel automatically refreshes to show the latest models — no manual reload needed.
-
-To connect your dbt project, configure its output path to write `dbt.db` into `~/.tdwh/db/`.
+| Layer | Technology |
+|---|---|
+| Desktop Framework | [Tauri 2](https://tauri.app/) |
+| Database Engine | [DuckDB](https://duckdb.org/) |
+| Frontend | React 19 + TypeScript |
+| SQL Editor | [Monaco Editor](https://microsoft.github.io/monaco-editor/) |
+| UI Components | [shadcn/ui](https://ui.shadcn.com/) + Tailwind CSS v4 |
+| State Management | [Zustand](https://zustand-demo.pmnd.rs/) |
+| Build Tool | [Vite](https://vitejs.dev/) |
 
 ---
 

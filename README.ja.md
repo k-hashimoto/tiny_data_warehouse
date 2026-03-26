@@ -1,5 +1,10 @@
 # Tiny Data Warehouse
 
+![Tiny Data Warehouse](./app.png)
+
+> [!WARNING]
+> **現在アルファ版です。** 動作テストが十分に行われておらず、クラッシュやデータの破損、予期しない動作が発生する可能性があります。自己責任でご利用ください。
+
 **コンセプト：手軽に試せる極小サイズのデータウェアハウス。** [DuckDB](https://duckdb.org/) を搭載した軽量デスクトップ SQL クライアントです。[Tauri](https://tauri.app/) と React で構築されており、個人のデータ探索・ローカル分析、そして [dbt](https://www.getdbt.com/) との連携を想定して設計されています。
 
 > 🇺🇸 [English README is here](./README.md)
@@ -19,20 +24,6 @@
 
 ---
 
-## 技術スタック
-
-| レイヤー | 技術 |
-|---|---|
-| デスクトップフレームワーク | [Tauri 2](https://tauri.app/) |
-| データベースエンジン | [DuckDB](https://duckdb.org/) |
-| フロントエンド | React 19 + TypeScript |
-| SQL エディタ | [Monaco Editor](https://microsoft.github.io/monaco-editor/) |
-| UI コンポーネント | [shadcn/ui](https://ui.shadcn.com/) + Tailwind CSS v4 |
-| 状態管理 | [Zustand](https://zustand-demo.pmnd.rs/) |
-| ビルドツール | [Vite](https://vitejs.dev/) |
-
----
-
 ## インストール（macOS）
 
 [Releases](../../releases) ページから最新の `.dmg` をダウンロードしてインストールしてください。
@@ -42,6 +33,31 @@
 > ```bash
 > xattr -dr com.apple.quarantine /Applications/Tiny\ Data\ Ware\ House.app
 > ```
+
+---
+
+## データの保存場所
+
+すべてのデータはローカルの `~/.tdwh/` 以下に保存されます：
+
+```
+~/.tdwh/
+└── db/
+    ├── app.db   # メインの DuckDB データベース
+    └── dbt.db   # dbt の出力データベース（自動検出）
+```
+
+外部サーバーへのデータ送信は一切ありません。
+
+---
+
+## dbt 連携について
+
+Tiny Data Warehouse は `~/.tdwh/db/dbt.db` の変更を監視しています。`dbt run` が完了すると、エクスプローラーパネルが自動的に更新され、最新のモデルが反映されます。手動でのリロードは不要です。
+
+dbt プロジェクトを連携させるには、dbt の出力先（`profiles.yml` の `path` 設定）を `~/.tdwh/db/` に向けるように設定してください。
+
+サンプルの dbt プロジェクトが [`dbt_examples/`](./dbt_examples/) ディレクトリに用意されています。参考にしてください。
 
 ---
 
@@ -77,26 +93,17 @@ task build
 
 ---
 
-## データの保存場所
+## 技術スタック
 
-すべてのデータはローカルの `~/.tdwh/` 以下に保存されます：
-
-```
-~/.tdwh/
-└── db/
-    ├── app.db   # メインの DuckDB データベース
-    └── dbt.db   # dbt の出力データベース（自動検出）
-```
-
-外部サーバーへのデータ送信は一切ありません。
-
----
-
-## dbt 連携について
-
-Tiny Data Warehouse は `~/.tdwh/db/dbt.db` の変更を監視しています。`dbt run` が完了すると、エクスプローラーパネルが自動的に更新され、最新のモデルが反映されます。手動でのリロードは不要です。
-
-dbt プロジェクトを連携させるには、dbt の出力先（`profiles.yml` の `path` 設定）を `~/.tdwh/db/` に向けるように設定してください。
+| レイヤー | 技術 |
+|---|---|
+| デスクトップフレームワーク | [Tauri 2](https://tauri.app/) |
+| データベースエンジン | [DuckDB](https://duckdb.org/) |
+| フロントエンド | React 19 + TypeScript |
+| SQL エディタ | [Monaco Editor](https://microsoft.github.io/monaco-editor/) |
+| UI コンポーネント | [shadcn/ui](https://ui.shadcn.com/) + Tailwind CSS v4 |
+| 状態管理 | [Zustand](https://zustand-demo.pmnd.rs/) |
+| ビルドツール | [Vite](https://vitejs.dev/) |
 
 ---
 
