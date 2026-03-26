@@ -1,0 +1,21 @@
+# yaml-language-server: $schema=https://taskfile.dev/schema.json
+
+version: '3'
+
+tasks:
+  default:
+    cmds:
+      - task --list-all
+    silent: true
+
+  build:
+    desc: Build App
+    cmds:
+      - npm install && npm run tauri build
+
+  clean:
+    desc: Clean
+    cmds:
+      - rm -rf src-tauri/target/
+      - rm -rf dist/
+      - rm -rf node_modules/
