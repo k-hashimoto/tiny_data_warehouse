@@ -11,6 +11,18 @@
 
 ---
 
+## Installation (macOS)
+
+Download the latest `.dmg` from the [Releases](../../releases) page and install the app.
+
+> **Note:** Since this app is not code-signed, macOS may show a "damaged" error when you try to open it. Run the following command in Terminal to fix this:
+>
+> ```bash
+> xattr -dr com.apple.quarantine /Applications/Tiny\ Data\ Ware\ House.app
+> ```
+
+---
+
 ## Features
 
 - **SQL Editor** — Monaco-based editor with syntax highlighting, multi-tab support, and query history
@@ -21,18 +33,6 @@
 - **Table Metadata** — Add comments to tables and columns for documentation
 - **Dark Mode** — Toggle between light and dark themes
 - **Resizable Layout** — Drag panels to customize your workspace
-
----
-
-## Installation (macOS)
-
-Download the latest `.dmg` from the [Releases](../../releases) page and install the app.
-
-> **Note:** Since this app is not code-signed, macOS may show a "damaged" error when you try to open it. Run the following command in Terminal to fix this:
->
-> ```bash
-> xattr -dr com.apple.quarantine /Applications/Tiny\ Data\ Ware\ House.app
-> ```
 
 ---
 
