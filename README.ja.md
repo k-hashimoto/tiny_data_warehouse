@@ -1,6 +1,6 @@
 # Tiny Data Warehouse
 
-[DuckDB](https://duckdb.org/) を搭載した軽量デスクトップ SQL クライアントです。[Tauri](https://tauri.app/) と React で構築されており、個人のデータ探索・ローカル分析、そして [dbt](https://www.getdbt.com/) との連携を想定して設計されています。
+**コンセプト：手軽に試せる極小サイズのデータウェアハウス。** [DuckDB](https://duckdb.org/) を搭載した軽量デスクトップ SQL クライアントです。[Tauri](https://tauri.app/) と React で構築されており、個人のデータ探索・ローカル分析、そして [dbt](https://www.getdbt.com/) との連携を想定して設計されています。
 
 > 🇺🇸 [English README is here](./README.md)
 

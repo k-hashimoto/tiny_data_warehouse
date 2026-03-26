@@ -1,6 +1,6 @@
 # Tiny Data Warehouse
 
-A lightweight desktop SQL client powered by [DuckDB](https://duckdb.org/), built with [Tauri](https://tauri.app/) and React. Designed for personal data exploration, local analytics, and seamless integration with [dbt](https://www.getdbt.com/).
+**Concept: A minimal data warehouse you can try out effortlessly.** Tiny Data Warehouse is a lightweight desktop SQL client powered by [DuckDB](https://duckdb.org/), built with [Tauri](https://tauri.app/) and React. Designed for personal data exploration, local analytics, and seamless integration with [dbt](https://www.getdbt.com/).
 
 > 🇯🇵 [日本語版 README はこちら](./README.ja.md)
 
