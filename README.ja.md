@@ -135,3 +135,9 @@ tiny_data_warehouse/
 ## ライセンス
 
 MIT
+
+---
+
+## 備考
+
+このリポジトリのコードはすべて [Claude Code](https://claude.ai/code) によって生成されています。
