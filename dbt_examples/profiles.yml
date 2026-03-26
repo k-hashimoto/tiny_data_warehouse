@@ -1,0 +1,8 @@
+my_project:
+  target: dev
+  outputs:
+    dev:
+      type: duckdb
+      path: /Users/<your user name>/.tdwh/db/dbt.db
+      threads: 1
+ 
