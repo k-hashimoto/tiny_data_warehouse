@@ -1,1 +1,6 @@
 .DS_Store
+.git
+.claude
+
+node_modules/
+dist/

@@ -40,7 +40,7 @@
 > **注意:** このアプリはコード署名されていないため、開こうとすると「壊れている」というエラーが表示される場合があります。その場合はターミナルで以下のコマンドを実行してください：
 >
 > ```bash
-> xattr -dr com.apple.quarantine /Applications/TinyDataWarehouse.app
+> xattr -dr com.apple.quarantine /Applications/Tiny\ Data\ Ware\ House.app
 > ```
 
 ---
