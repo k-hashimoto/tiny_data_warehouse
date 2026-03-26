@@ -1,5 +1,7 @@
 # Tiny Data Warehouse
 
+![Tiny Data Warehouse](./app.png)
+
 > [!WARNING]
 > **This is alpha-quality software.** It has not been adequately tested and may crash, corrupt data, or behave unexpectedly. Use at your own risk.
 

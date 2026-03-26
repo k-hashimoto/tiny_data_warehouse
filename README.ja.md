@@ -1,5 +1,7 @@
 # Tiny Data Warehouse
 
+![Tiny Data Warehouse](./app.png)
+
 > [!WARNING]
 > **現在アルファ版です。** 動作テストが十分に行われておらず、クラッシュやデータの破損、予期しない動作が発生する可能性があります。自己責任でご利用ください。
 
