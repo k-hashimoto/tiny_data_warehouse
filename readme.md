@@ -33,6 +33,18 @@
 
 ---
 
+## Installation (macOS)
+
+Download the latest `.dmg` from the [Releases](../../releases) page and install the app.
+
+> **Note:** Since this app is not code-signed, macOS may show a "damaged" error when you try to open it. Run the following command in Terminal to fix this:
+>
+> ```bash
+> xattr -dr com.apple.quarantine /Applications/TinyDataWarehouse.app
+> ```
+
+---
+
 ## Getting Started
 
 ### Prerequisites
