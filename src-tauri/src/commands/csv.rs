@@ -3,6 +3,11 @@ use crate::db::worker::DbWorker;
 use crate::db::types::{CsvImportOptions, CsvPreviewResult, TableInfo};
 
 #[tauri::command]
+pub async fn reimport_csv(schema_name: String, table_name: String, db: State<'_, DbWorker>) -> Result<TableInfo, String> {
+    db.reimport_csv(schema_name, table_name).await
+}
+
+#[tauri::command]
 pub async fn preview_csv(opts: CsvImportOptions, db: State<'_, DbWorker>) -> Result<CsvPreviewResult, String> {
     db.preview_csv(opts).await
 }
