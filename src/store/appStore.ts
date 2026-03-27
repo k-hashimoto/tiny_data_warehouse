@@ -125,7 +125,7 @@ export const useAppStore = create<AppState>()(
         if (tabs.length >= 10) return;
         tabCounter = tabs.length + 1;
         const id = nextTabId();
-        const tab = makeTab(id, tabCounter);
+        const tab = { ...makeTab(id, tabCounter), sql: "" };
         set((s) => ({ tabs: [...s.tabs, tab], activeTabId: id }));
       },
 
