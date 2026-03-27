@@ -29,7 +29,7 @@ export type ContextMenuState = TableContextMenu | SchemaContextMenu;
 export function useTableTree() {
   const tables = useAppStore((s) => s.tables);
   const setTables = useAppStore((s) => s.setTables);
-  const setSql = useAppStore((s) => s.setSql);
+  const updateTabSql = useAppStore((s) => s.updateTabSql);
   const setError = useAppStore((s) => s.setError);
   const setStatus = useAppStore((s) => s.setStatus);
   const tabs = useAppStore((s) => s.tabs);
@@ -121,7 +121,7 @@ export function useTableTree() {
     const newSql = `SELECT * FROM ${qualified} LIMIT 100`;
     const currentSql = tabs.find((t) => t.id === activeTabId)?.sql ?? "";
     const isEmpty = currentSql.trim() === "";
-    setSql(isEmpty ? newSql : `${currentSql}\n\n${newSql}`);
+    updateTabSql(activeTabId, isEmpty ? newSql : `${currentSql}\n\n${newSql}`);
     setStatus(isEmpty ? `Inserted: ${newSql}` : `Appended: ${newSql}`);
   }
 

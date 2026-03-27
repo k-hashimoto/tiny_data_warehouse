@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useAppStore } from "@/store/appStore";
 import { Button } from "@/components/ui/button";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import {
   FileCodeIcon, PlayIcon, RefreshCwIcon, Trash2Icon, ScrollIcon,
   FolderIcon, FolderOpenIcon, ChevronRightIcon, ChevronDownIcon,
@@ -333,24 +334,16 @@ export function ScriptList() {
         </div>
       )}
 
-      {/* Delete confirmation */}
       {deleteConfirm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-popover border rounded-lg shadow-xl p-4 w-72 text-sm">
-            <p className="font-semibold mb-1">Delete script?</p>
-            <p className="text-muted-foreground mb-4 text-xs">
-              <span className="font-mono">{deleteConfirm}.sql</span> を削除します。
-            </p>
-            <div className="flex justify-end gap-2">
-              <Button size="sm" variant="ghost" onClick={() => setDeleteConfirm(null)}>
-                Cancel
-              </Button>
-              <Button size="sm" variant="destructive" onClick={confirmDelete}>
-                Delete
-              </Button>
-            </div>
-          </div>
-        </div>
+        <ConfirmDialog
+          title="Delete script?"
+          description={`${deleteConfirm}.sql を削除します。`}
+          confirmLabel="Delete"
+          cancelLabel="Cancel"
+          destructive
+          onConfirm={confirmDelete}
+          onCancel={() => setDeleteConfirm(null)}
+        />
       )}
     </div>
   );
