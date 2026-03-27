@@ -1,4 +1,6 @@
 import { Button } from "@/components/ui/button";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { InputModal } from "@/components/ui/InputModal";
 import { RefreshCwIcon, UploadIcon, PlusIcon, DatabaseIcon } from "lucide-react";
 import { useTableTree } from "./hooks/useTableTree";
 import { SchemaFolder } from "./SchemaFolder";
@@ -121,40 +123,29 @@ export function TableTree() {
       )}
 
       {showCreateSchema && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="bg-background border rounded-lg shadow-xl w-72 p-4">
-            <p className="text-sm font-semibold mb-3">新しいスキーマを作成</p>
-            <input
-              autoFocus
-              value={newSchemaName}
-              onChange={(e) => setNewSchemaName(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter") executeCreateSchema(); if (e.key === "Escape") setShowCreateSchema(false); }}
-              placeholder="スキーマ名"
-              className="w-full text-xs bg-background border rounded px-2 py-1.5 mb-3 outline-none focus:ring-1 focus:ring-primary"
-            />
-            <div className="flex justify-end gap-2">
-              <Button size="sm" variant="outline" className="text-xs h-7" onClick={() => setShowCreateSchema(false)}>キャンセル</Button>
-              <Button size="sm" className="text-xs h-7" disabled={!newSchemaName.trim()} onClick={executeCreateSchema}>作成</Button>
-            </div>
-          </div>
-        </div>
+        <InputModal
+          title="新しいスキーマを作成"
+          placeholder="スキーマ名"
+          value={newSchemaName}
+          onChange={setNewSchemaName}
+          onConfirm={executeCreateSchema}
+          onCancel={() => setShowCreateSchema(false)}
+        />
       )}
 
       {dropConfirm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="bg-background border rounded-lg shadow-xl w-80 p-4">
-            <p className="text-sm font-semibold mb-2">{dropConfirm.type === "table" ? "テーブルを削除" : "スキーマを削除"}</p>
-            <p className="text-xs text-muted-foreground mb-4">
-              {dropConfirm.type === "table"
-                ? `"${dropConfirm.schemaName}"."${dropConfirm.tableName}" を削除します。この操作は元に戻せません。`
-                : `スキーマ "${dropConfirm.schemaName}" とその全テーブルを削除します（CASCADE）。この操作は元に戻せません。`}
-            </p>
-            <div className="flex justify-end gap-2">
-              <Button size="sm" variant="outline" className="text-xs h-7" onClick={() => setDropConfirm(null)}>キャンセル</Button>
-              <Button size="sm" variant="destructive" className="text-xs h-7" onClick={() => dropConfirm.type === "table" ? executeDropTable(dropConfirm.schemaName, dropConfirm.tableName!) : executeDropSchema(dropConfirm.schemaName)}>削除</Button>
-            </div>
-          </div>
-        </div>
+        <ConfirmDialog
+          title={dropConfirm.type === "table" ? "テーブルを削除" : "スキーマを削除"}
+          description={
+            dropConfirm.type === "table"
+              ? `"${dropConfirm.schemaName}"."${dropConfirm.tableName}" を削除します。この操作は元に戻せません。`
+              : `スキーマ "${dropConfirm.schemaName}" とその全テーブルを削除します（CASCADE）。この操作は元に戻せません。`
+          }
+          confirmLabel="削除"
+          destructive
+          onConfirm={() => dropConfirm.type === "table" ? executeDropTable(dropConfirm.schemaName, dropConfirm.tableName!) : executeDropSchema(dropConfirm.schemaName)}
+          onCancel={() => setDropConfirm(null)}
+        />
       )}
 
       {showImport && (
