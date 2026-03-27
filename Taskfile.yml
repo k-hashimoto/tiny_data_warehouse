@@ -9,9 +9,10 @@ tasks:
     silent: true
 
   build:
-    desc: Build App
+    desc: Build App and install to /Applications
     cmds:
-      - npm install && npm run tauri build
+      - npm install && npm run tauri build -- --bundles app
+      - cp -r "src-tauri/target/release/bundle/macos/Tiny Data Ware House.app" /Applications/
 
   clean:
     desc: Clean
