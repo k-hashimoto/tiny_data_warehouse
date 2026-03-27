@@ -16,6 +16,7 @@ export function DbtSection() {
   const setDbtTables = useAppStore((s) => s.setDbtTables);
   const setSql = useAppStore((s) => s.setSql);
   const setError = useAppStore((s) => s.setError);
+  const setStatus = useAppStore((s) => s.setStatus);
   const tabs = useAppStore((s) => s.tabs);
   const activeTabId = useAppStore((s) => s.activeTabId);
 
@@ -162,7 +163,9 @@ export function DbtSection() {
     const table = tableName.replace(/"/g, '""');
     const newSql = `SELECT * FROM dbt."${schema}"."${table}" LIMIT 100`;
     const currentSql = tabs.find((t) => t.id === activeTabId)?.sql ?? "";
-    setSql(currentSql.trim() === "" ? newSql : `${currentSql}\n\n${newSql}`);
+    const isEmpty = currentSql.trim() === "";
+    setSql(isEmpty ? newSql : `${currentSql}\n\n${newSql}`);
+    setStatus(isEmpty ? `Inserted: ${newSql}` : `Appended: ${newSql}`);
   }
 
   return (
