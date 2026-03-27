@@ -3,6 +3,7 @@ use std::thread;
 use std::time::Instant;
 use duckdb::Connection;
 use crate::db::connection::row_value_to_json;
+use crate::db::sql_util;
 use crate::db::types::{QueryResult, TableInfo, SchemaResult, ColumnInfo, CsvImportOptions, CsvPreviewResult, TableMeta, ColumnMeta};
 
 pub enum WorkerCmd {
@@ -118,7 +119,7 @@ impl DbWorker {
             // Limit DuckDB internal threads to avoid macOS thread conflicts
             let _ = conn.execute("SET threads=2", []);
             // Set dbt_db variable so users can ATTACH with: ATTACH getvariable('dbt_db') AS dbt
-            let set_var = format!("SET VARIABLE dbt_db = '{}'", dbt_db_path.replace('\'', "''"));
+            let set_var = format!("SET VARIABLE dbt_db = {}", sql_util::literal(&dbt_db_path));
             let _ = conn.execute_batch(&set_var);
             // Initialize internal metadata schema for CSV source tracking
             let _ = conn.execute_batch(
@@ -152,11 +153,7 @@ impl DbWorker {
                         let _ = tx.send(exec_get_schema(&conn, &schema_name, &table_name));
                     }
                     WorkerCmd::PreviewTable { table_name, limit, tx } => {
-                        let sql = format!(
-                            "SELECT * FROM \"{}\" LIMIT {}",
-                            table_name.replace('"', "\"\""),
-                            limit
-                        );
+                        let sql = format!("SELECT * FROM {} LIMIT {}", sql_util::ident(&table_name), limit);
                         let _ = tx.send(exec_query(&conn, &sql));
                     }
                     WorkerCmd::PreviewCsv { opts, tx } => {
@@ -356,10 +353,12 @@ fn exec_query(conn: &Connection, sql: &str) -> Result<QueryResult, String> {
     Ok(QueryResult { columns, rows: result_rows, row_count, elapsed_ms, truncated: false })
 }
 
-fn exec_list_tables(conn: &Connection) -> Result<Vec<TableInfo>, String> {
-    let mut stmt = conn
-        .prepare("SELECT schema_name, table_name FROM duckdb_tables() WHERE schema_name NOT IN ('information_schema', 'pg_catalog', '_tdw') AND database_name != 'dbt' ORDER BY schema_name, table_name")
-        .map_err(|e| e.to_string())?;
+/// Shared inner loop for listing tables from a connection.
+/// `list_sql` must SELECT schema_name, table_name.
+/// `exclude_dbt_db`: when true, adds `AND database_name != 'dbt'` to the column count query
+///   (needed for the main connection that may have the dbt DB attached).
+fn list_tables_from(conn: &Connection, list_sql: &str, exclude_dbt_db: bool) -> Result<Vec<TableInfo>, String> {
+    let mut stmt = conn.prepare(list_sql).map_err(|e| e.to_string())?;
     let mut rows = stmt.query([]).map_err(|e| e.to_string())?;
 
     let mut tables = Vec::new();
@@ -368,32 +367,40 @@ fn exec_list_tables(conn: &Connection) -> Result<Vec<TableInfo>, String> {
         let name: String = row.get(1).map_err(|e| e.to_string())?;
         let row_count: i64 = conn
             .query_row(
-                &format!("SELECT COUNT(*) FROM \"{}\".\"{}\"",
-                    schema_name.replace('"', "\"\""),
-                    name.replace('"', "\"\"")),
+                &format!("SELECT COUNT(*) FROM {}", sql_util::qualified(&schema_name, &name)),
                 [],
                 |r| r.get(0),
             )
             .unwrap_or(0);
+        let db_filter = if exclude_dbt_db { " AND database_name != 'dbt'" } else { "" };
         let column_count: i64 = conn
             .query_row(
                 &format!(
-                    "SELECT COUNT(*) FROM duckdb_columns() WHERE database_name != 'dbt' AND schema_name = '{}' AND table_name = '{}'",
-                    schema_name.replace('\'', "''"),
-                    name.replace('\'', "''")
+                    "SELECT COUNT(*) FROM duckdb_columns() WHERE{} schema_name = {} AND table_name = {}",
+                    db_filter,
+                    sql_util::literal(&schema_name),
+                    sql_util::literal(&name)
                 ),
                 [],
                 |r| r.get(0),
             )
             .unwrap_or(0);
-        let csv_source_path: Option<String> = conn
+        tables.push(TableInfo { name, schema_name, row_count, column_count, csv_source_path: None });
+    }
+    Ok(tables)
+}
+
+fn exec_list_tables(conn: &Connection) -> Result<Vec<TableInfo>, String> {
+    let list_sql = "SELECT schema_name, table_name FROM duckdb_tables() WHERE schema_name NOT IN ('information_schema', 'pg_catalog', '_tdw') AND database_name != 'dbt' ORDER BY schema_name, table_name";
+    let mut tables = list_tables_from(conn, list_sql, true)?;
+    for t in &mut tables {
+        t.csv_source_path = conn
             .query_row(
                 "SELECT file_path FROM _tdw.csv_sources WHERE schema_name = ? AND table_name = ?",
-                [&schema_name, &name],
+                [&t.schema_name, &t.name],
                 |r| r.get(0),
             )
             .ok();
-        tables.push(TableInfo { name, schema_name, row_count, column_count, csv_source_path });
     }
     Ok(tables)
 }
@@ -408,53 +415,19 @@ fn exec_list_dbt_tables(dbt_path: &str) -> Result<Vec<TableInfo>, String> {
         Ok(c) => c,
         Err(_) => return Ok(vec![]),
     };
-
-    let mut stmt = match conn.prepare(
-        "SELECT schema_name, table_name FROM duckdb_tables() WHERE schema_name NOT IN ('information_schema', 'pg_catalog') ORDER BY schema_name, table_name"
-    ) {
-        Ok(s) => s,
-        Err(_) => return Ok(vec![]),
-    };
-    let mut rows = stmt.query([]).map_err(|e| e.to_string())?;
-
-    let mut tables = Vec::new();
-    while let Some(row) = rows.next().map_err(|e| e.to_string())? {
-        let schema_name: String = row.get(0).map_err(|e| e.to_string())?;
-        let name: String = row.get(1).map_err(|e| e.to_string())?;
-        let row_count: i64 = conn
-            .query_row(
-                &format!("SELECT COUNT(*) FROM \"{}\".\"{}\"",
-                    schema_name.replace('"', "\"\""),
-                    name.replace('"', "\"\"")),
-                [],
-                |r| r.get(0),
-            )
-            .unwrap_or(0);
-        let column_count: i64 = conn
-            .query_row(
-                &format!(
-                    "SELECT COUNT(*) FROM duckdb_columns() WHERE schema_name = '{}' AND table_name = '{}'",
-                    schema_name.replace('\'', "''"),
-                    name.replace('\'', "''")
-                ),
-                [],
-                |r| r.get(0),
-            )
-            .unwrap_or(0);
-        tables.push(TableInfo { name, schema_name, row_count, column_count, csv_source_path: None });
-    }
-    Ok(tables)
+    let list_sql = "SELECT schema_name, table_name FROM duckdb_tables() WHERE schema_name NOT IN ('information_schema', 'pg_catalog') ORDER BY schema_name, table_name";
+    list_tables_from(&conn, list_sql, false)
 }
 
-fn exec_get_schema(conn: &Connection, schema_name: &str, table_name: &str) -> Result<SchemaResult, String> {
+/// Shared schema lookup used by both the main and dbt connections.
+fn get_schema_from(conn: &Connection, schema_name: &str, table_name: &str) -> Result<SchemaResult, String> {
     let sql = format!(
-        "SELECT column_name, data_type, is_nullable FROM duckdb_columns() WHERE schema_name = '{}' AND table_name = '{}' ORDER BY column_index",
-        schema_name.replace('\'', "''"),
-        table_name.replace('\'', "''")
+        "SELECT column_name, data_type, is_nullable FROM duckdb_columns() WHERE schema_name = {} AND table_name = {} ORDER BY column_index",
+        sql_util::literal(schema_name),
+        sql_util::literal(table_name)
     );
     let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
     let mut rows = stmt.query([]).map_err(|e| e.to_string())?;
-
     let mut columns = Vec::new();
     while let Some(row) = rows.next().map_err(|e| e.to_string())? {
         let name: String = row.get(0).map_err(|e| e.to_string())?;
@@ -465,6 +438,10 @@ fn exec_get_schema(conn: &Connection, schema_name: &str, table_name: &str) -> Re
         columns.push(ColumnInfo { name, column_type, nullable });
     }
     Ok(SchemaResult { table_name: table_name.to_string(), columns })
+}
+
+fn exec_get_schema(conn: &Connection, schema_name: &str, table_name: &str) -> Result<SchemaResult, String> {
+    get_schema_from(conn, schema_name, table_name)
 }
 
 fn build_read_csv_expr(opts: &CsvImportOptions) -> String {
@@ -501,9 +478,7 @@ fn exec_preview_csv(conn: &Connection, opts: &CsvImportOptions) -> Result<CsvPre
 
 fn exec_import_csv(conn: &Connection, opts: &CsvImportOptions) -> Result<TableInfo, String> {
     let csv_expr = build_read_csv_expr(opts);
-    let schema = opts.schema_name.replace('"', "\"\"");
-    let table = opts.table_name.replace('"', "\"\"");
-    let qualified = format!("\"{}\".\"{}\"", schema, table);
+    let qualified = sql_util::qualified(&opts.schema_name, &opts.table_name);
 
     let sql = match opts.if_exists.as_str() {
         "append" => format!("INSERT INTO {} SELECT * FROM {}", qualified, csv_expr),
@@ -517,17 +492,17 @@ fn exec_import_csv(conn: &Connection, opts: &CsvImportOptions) -> Result<TableIn
     if opts.if_exists != "append" {
         let upsert = format!(
             "INSERT INTO _tdw.csv_sources (schema_name, table_name, file_path, delimiter, encoding, has_header)
-             VALUES ('{}', '{}', '{}', '{}', '{}', {})
+             VALUES ({}, {}, {}, {}, {}, {})
              ON CONFLICT (schema_name, table_name) DO UPDATE SET
                  file_path = EXCLUDED.file_path,
                  delimiter = EXCLUDED.delimiter,
                  encoding  = EXCLUDED.encoding,
                  has_header = EXCLUDED.has_header",
-            opts.schema_name.replace('\'', "''"),
-            opts.table_name.replace('\'', "''"),
-            opts.file_path.replace('\'', "''"),
-            opts.delimiter.replace('\'', "''"),
-            opts.encoding.replace('\'', "''"),
+            sql_util::literal(&opts.schema_name),
+            sql_util::literal(&opts.table_name),
+            sql_util::literal(&opts.file_path),
+            sql_util::literal(&opts.delimiter),
+            sql_util::literal(&opts.encoding),
             if opts.has_header { "true" } else { "false" },
         );
         let _ = conn.execute(&upsert, []);
@@ -538,9 +513,11 @@ fn exec_import_csv(conn: &Connection, opts: &CsvImportOptions) -> Result<TableIn
         .unwrap_or(0);
     let column_count: i64 = conn
         .query_row(
-            &format!("SELECT COUNT(*) FROM duckdb_columns() WHERE schema_name = '{}' AND table_name = '{}'",
-                opts.schema_name.replace('\'', "''"),
-                opts.table_name.replace('\'', "''")),
+            &format!(
+                "SELECT COUNT(*) FROM duckdb_columns() WHERE schema_name = {} AND table_name = {}",
+                sql_util::literal(&opts.schema_name),
+                sql_util::literal(&opts.table_name)
+            ),
             [],
             |r| r.get(0),
         )
@@ -560,12 +537,7 @@ fn exec_preview_dbt_table(dbt_path: &str, schema_name: &str, table_name: &str, l
         .access_mode(duckdb::AccessMode::ReadOnly)
         .map_err(|e| e.to_string())?;
     let conn = Connection::open_with_flags(dbt_path, config).map_err(|e| e.to_string())?;
-    let sql = format!(
-        "SELECT * FROM \"{}\".\"{}\" LIMIT {}",
-        schema_name.replace('"', "\"\""),
-        table_name.replace('"', "\"\""),
-        limit
-    );
+    let sql = format!("SELECT * FROM {} LIMIT {}", sql_util::qualified(schema_name, table_name), limit);
     exec_query(&conn, &sql)
 }
 
@@ -585,10 +557,7 @@ fn exec_list_schemas(conn: &Connection) -> Result<Vec<String>, String> {
 fn exec_attach_dbt(conn: &Connection, dbt_path: &str) -> Result<(), String> {
     // Detach first if already attached (ignore error if not attached)
     let _ = conn.execute("DETACH dbt", []);
-    let sql = format!(
-        "ATTACH '{}' AS dbt (READ_ONLY)",
-        dbt_path.replace('\'', "''")
-    );
+    let sql = format!("ATTACH {} AS dbt (READ_ONLY)", sql_util::literal(dbt_path));
     conn.execute(&sql, []).map_err(|e| e.to_string())?;
     Ok(())
 }
@@ -603,41 +572,19 @@ fn exec_get_dbt_schema(dbt_path: &str, schema_name: &str, table_name: &str) -> R
         .access_mode(duckdb::AccessMode::ReadOnly)
         .map_err(|e| e.to_string())?;
     let conn = Connection::open_with_flags(dbt_path, config).map_err(|e| e.to_string())?;
-    let sql = format!(
-        "SELECT column_name, data_type, is_nullable FROM duckdb_columns() WHERE schema_name = '{}' AND table_name = '{}' ORDER BY column_index",
-        schema_name.replace('\'', "''"),
-        table_name.replace('\'', "''")
-    );
-    let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
-    let mut rows = stmt.query([]).map_err(|e| e.to_string())?;
-    let mut columns = Vec::new();
-    while let Some(row) = rows.next().map_err(|e| e.to_string())? {
-        let name: String = row.get(0).map_err(|e| e.to_string())?;
-        let column_type: String = row.get(1).map_err(|e| e.to_string())?;
-        let nullable = row.get::<_, bool>(2)
-            .unwrap_or_else(|_| row.get::<_, String>(2).map(|s| s == "YES").unwrap_or(false));
-        columns.push(ColumnInfo { name, column_type, nullable });
-    }
-    Ok(SchemaResult { table_name: table_name.to_string(), columns })
+    get_schema_from(&conn, schema_name, table_name)
 }
 
 fn exec_drop_dbt_table(dbt_path: &str, schema_name: &str, table_name: &str) -> Result<(), String> {
     let conn = Connection::open(dbt_path).map_err(|e| e.to_string())?;
-    let sql = format!(
-        "DROP TABLE IF EXISTS \"{}\".\"{}\"",
-        schema_name.replace('"', "\"\""),
-        table_name.replace('"', "\"\"")
-    );
+    let sql = format!("DROP TABLE IF EXISTS {}", sql_util::qualified(schema_name, table_name));
     conn.execute(&sql, []).map_err(|e| e.to_string())?;
     Ok(())
 }
 
 fn exec_drop_dbt_schema(dbt_path: &str, schema_name: &str) -> Result<(), String> {
     let conn = Connection::open(dbt_path).map_err(|e| e.to_string())?;
-    let sql = format!(
-        "DROP SCHEMA IF EXISTS \"{}\" CASCADE",
-        schema_name.replace('"', "\"\"")
-    );
+    let sql = format!("DROP SCHEMA IF EXISTS {} CASCADE", sql_util::ident(schema_name));
     conn.execute(&sql, []).map_err(|e| e.to_string())?;
     Ok(())
 }
@@ -645,18 +592,18 @@ fn exec_drop_dbt_schema(dbt_path: &str, schema_name: &str) -> Result<(), String>
 fn exec_get_table_meta(conn: &Connection, schema_name: &str, table_name: &str) -> Result<TableMeta, String> {
     let comment: Option<String> = conn.query_row(
         &format!(
-            "SELECT comment FROM duckdb_tables() WHERE database_name != 'dbt' AND schema_name = '{}' AND table_name = '{}'",
-            schema_name.replace('\'', "''"),
-            table_name.replace('\'', "''")
+            "SELECT comment FROM duckdb_tables() WHERE database_name != 'dbt' AND schema_name = {} AND table_name = {}",
+            sql_util::literal(schema_name),
+            sql_util::literal(table_name)
         ),
         [],
         |r| r.get::<_, String>(0),
     ).ok();
 
     let sql = format!(
-        "SELECT column_name, data_type, comment FROM duckdb_columns() WHERE database_name != 'dbt' AND schema_name = '{}' AND table_name = '{}' ORDER BY column_index",
-        schema_name.replace('\'', "''"),
-        table_name.replace('\'', "''")
+        "SELECT column_name, data_type, comment FROM duckdb_columns() WHERE database_name != 'dbt' AND schema_name = {} AND table_name = {} ORDER BY column_index",
+        sql_util::literal(schema_name),
+        sql_util::literal(table_name)
     );
     let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
     let mut rows = stmt.query([]).map_err(|e| e.to_string())?;
@@ -678,18 +625,18 @@ fn exec_get_dbt_table_meta(dbt_path: &str, schema_name: &str, table_name: &str) 
 
     let comment: Option<String> = conn.query_row(
         &format!(
-            "SELECT comment FROM duckdb_tables() WHERE schema_name = '{}' AND table_name = '{}'",
-            schema_name.replace('\'', "''"),
-            table_name.replace('\'', "''")
+            "SELECT comment FROM duckdb_tables() WHERE schema_name = {} AND table_name = {}",
+            sql_util::literal(schema_name),
+            sql_util::literal(table_name)
         ),
         [],
         |r| r.get::<_, String>(0),
     ).ok();
 
     let sql = format!(
-        "SELECT column_name, data_type, comment FROM duckdb_columns() WHERE schema_name = '{}' AND table_name = '{}' ORDER BY column_index",
-        schema_name.replace('\'', "''"),
-        table_name.replace('\'', "''")
+        "SELECT column_name, data_type, comment FROM duckdb_columns() WHERE schema_name = {} AND table_name = {} ORDER BY column_index",
+        sql_util::literal(schema_name),
+        sql_util::literal(table_name)
     );
     let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
     let mut rows = stmt.query([]).map_err(|e| e.to_string())?;
@@ -704,25 +651,23 @@ fn exec_get_dbt_table_meta(dbt_path: &str, schema_name: &str, table_name: &str) 
 }
 
 fn exec_set_table_comment(conn: &Connection, schema_name: &str, table_name: &str, comment: &str) -> Result<(), String> {
-    let schema = schema_name.replace('"', "\"\"");
-    let table = table_name.replace('"', "\"\"");
+    let qualified = sql_util::qualified(schema_name, table_name);
     let sql = if comment.is_empty() {
-        format!("COMMENT ON TABLE \"{}\".\"{}\" IS NULL", schema, table)
+        format!("COMMENT ON TABLE {} IS NULL", qualified)
     } else {
-        format!("COMMENT ON TABLE \"{}\".\"{}\" IS '{}'", schema, table, comment.replace('\'', "''"))
+        format!("COMMENT ON TABLE {} IS {}", qualified, sql_util::literal(comment))
     };
     conn.execute(&sql, []).map_err(|e| e.to_string())?;
     Ok(())
 }
 
 fn exec_set_column_comment(conn: &Connection, schema_name: &str, table_name: &str, column_name: &str, comment: &str) -> Result<(), String> {
-    let schema = schema_name.replace('"', "\"\"");
-    let table = table_name.replace('"', "\"\"");
-    let column = column_name.replace('"', "\"\"");
+    let table_ref = sql_util::qualified(schema_name, table_name);
+    let col_ref = sql_util::ident(column_name);
     let sql = if comment.is_empty() {
-        format!("COMMENT ON COLUMN \"{schema}\".\"{table}\".\"{column}\" IS NULL")
+        format!("COMMENT ON COLUMN {}.{} IS NULL", table_ref, col_ref)
     } else {
-        format!("COMMENT ON COLUMN \"{schema}\".\"{table}\".\"{column}\" IS '{}'", comment.replace('\'', "''"))
+        format!("COMMENT ON COLUMN {}.{} IS {}", table_ref, col_ref, sql_util::literal(comment))
     };
     conn.execute(&sql, []).map_err(|e| e.to_string())?;
     Ok(())
