@@ -65,6 +65,8 @@ dbt プロジェクトを連携させるには、dbt の出力先（`profiles.ym
 
 サンプルの dbt プロジェクトが [`dbt_examples/`](./dbt_examples/) ディレクトリに用意されています。参考にしてください。
 
+**→ [dbt 連携ガイド（英語）](./docs/dbt-integration.md)** — セットアップ手順、profiles.yml の設定、よく使う dbt コマンド。
+
 ---
 
 ## セットアップ
