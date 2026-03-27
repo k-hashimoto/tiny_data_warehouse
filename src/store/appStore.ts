@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { MAX_TABS } from "@/constants";
 
 export interface QueryResult {
   columns: string[];
@@ -30,6 +31,18 @@ export interface CsvImportOptions {
 export interface CsvPreviewResult {
   preview: QueryResult;
   suggested_table_name: string;
+}
+
+export type JobKind =
+  | { type: "saved_query"; name: string }
+  | { type: "csv_import"; path: string }
+  | { type: "workflow"; id: string };
+
+export interface ScheduledJob {
+  id: string;
+  kind: JobKind;
+  cron: string;
+  enabled: boolean;
 }
 
 export interface Tab {
@@ -89,9 +102,8 @@ interface AppState {
   isRunning: boolean;
   queryHistory: string[];
 
-  // Legacy helpers (derived from active tab for compat)
+  // Derived from active tab for convenience
   sql: string;
-  setSql: (sql: string) => void;
   activeScript: string | null;
   setActiveScript: (name: string | null) => void;
 
@@ -104,6 +116,9 @@ interface AppState {
   setDbPath: (path: string) => void;
   setIsRunning: (v: boolean) => void;
   addToHistory: (sql: string) => void;
+
+  scheduledJobs: ScheduledJob[];
+  setScheduledJobs: (jobs: ScheduledJob[]) => void;
 
   historyOpen: boolean;
   setHistoryOpen: (v: boolean) => void;
@@ -123,7 +138,7 @@ export const useAppStore = create<AppState>()(
 
       addTab: () => {
         const { tabs } = get();
-        if (tabs.length >= 10) return;
+        if (tabs.length >= MAX_TABS) return;
         tabCounter = tabs.length + 1;
         const id = nextTabId();
         const tab = { ...makeTab(id, tabCounter), sql: "" };
@@ -180,12 +195,8 @@ export const useAppStore = create<AppState>()(
         return tabs.find((t) => t.id === activeTabId) ?? tabs[0];
       },
 
-      // Legacy compat: proxy to active tab
+      // Derived from active tab
       get sql() { return get().getActiveTab().sql; },
-      setSql: (sql: string) => {
-        const { activeTabId } = get();
-        get().updateTabSql(activeTabId, sql);
-      },
       get activeScript() { return get().getActiveTab().linkedScript; },
       setActiveScript: (name: string | null) => {
         const { activeTabId } = get();
@@ -204,6 +215,9 @@ export const useAppStore = create<AppState>()(
       dbPath: ":memory:",
       isRunning: false,
       queryHistory: [],
+
+      scheduledJobs: [],
+      setScheduledJobs: (scheduledJobs) => set({ scheduledJobs }),
 
       historyOpen: false,
       setHistoryOpen: (historyOpen) => set({ historyOpen }),

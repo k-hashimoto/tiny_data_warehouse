@@ -1,5 +1,8 @@
 mod commands;
+mod config;
 mod db;
+mod file_io;
+mod scheduler;
 
 use db::worker::DbWorker;
 use notify::Watcher;
@@ -74,7 +77,7 @@ pub fn run() {
                                 if msg.is_none() { return; }
                                 // More events coming — keep waiting
                             }
-                            _ = tokio::time::sleep(tokio::time::Duration::from_millis(1500)) => {
+                            _ = tokio::time::sleep(tokio::time::Duration::from_millis(config::DEBOUNCE_MS)) => {
                                 break; // Quiet for 1.5s — dbt likely finished
                             }
                         }
@@ -105,6 +108,7 @@ pub fn run() {
             commands::csv::reimport_csv,
             commands::csv::export_csv,
             commands::csv::export_query_csv,
+            commands::scripts::execute_saved_query,
             commands::explorer::list_schemas,
             commands::explorer::attach_dbt,
             commands::explorer::detach_dbt,

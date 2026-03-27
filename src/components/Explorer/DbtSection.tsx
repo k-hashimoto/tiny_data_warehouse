@@ -14,7 +14,7 @@ import { TableMetaModal } from "@/components/Explorer/TableMetaModal";
 export function DbtSection() {
   const dbtTables = useAppStore((s) => s.dbtTables);
   const setDbtTables = useAppStore((s) => s.setDbtTables);
-  const setSql = useAppStore((s) => s.setSql);
+  const updateTabSql = useAppStore((s) => s.updateTabSql);
   const setError = useAppStore((s) => s.setError);
   const setStatus = useAppStore((s) => s.setStatus);
   const tabs = useAppStore((s) => s.tabs);
@@ -164,7 +164,7 @@ export function DbtSection() {
     const newSql = `SELECT * FROM dbt."${schema}"."${table}" LIMIT 100`;
     const currentSql = tabs.find((t) => t.id === activeTabId)?.sql ?? "";
     const isEmpty = currentSql.trim() === "";
-    setSql(isEmpty ? newSql : `${currentSql}\n\n${newSql}`);
+    updateTabSql(activeTabId, isEmpty ? newSql : `${currentSql}\n\n${newSql}`);
     setStatus(isEmpty ? `Inserted: ${newSql}` : `Appended: ${newSql}`);
   }
 
