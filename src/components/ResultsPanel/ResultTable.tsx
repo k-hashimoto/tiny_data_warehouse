@@ -10,7 +10,7 @@ import { useAppStore } from "@/store/appStore";
 import { Button } from "@/components/ui/button";
 import { useMemo, useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { DownloadIcon, LoaderIcon } from "lucide-react";
+import { DownloadIcon, LoaderIcon, Settings2Icon } from "lucide-react";
 
 const PAGE_SIZE = 100;
 
@@ -18,10 +18,12 @@ interface EditorConfig {
   export_dir: string;
 }
 
-function generateFilename(): string {
-  const now = new Date();
-  const ts = now.toISOString().replace(/[-:T]/g, "").slice(0, 15);
-  return `query_${ts}.csv`;
+function defaultFilename(title: string, linkedScript: string | null): string {
+  if (linkedScript) {
+    const base = linkedScript.split("/").pop() ?? linkedScript;
+    return base.replace(/\.[^.]+$/, "") + ".csv";
+  }
+  return title.replace(/\s+/g, "_") + ".csv";
 }
 
 export function ResultTable() {
@@ -31,7 +33,12 @@ export function ResultTable() {
   const error = useAppStore((s) => s.error);
 
   const [exportDir, setExportDir] = useState("~/Downloads");
-  const [showExportConfirm, setShowExportConfirm] = useState(false);
+  // tabId -> filename mapping so each tab remembers its own export filename
+  const [exportFilenames, setExportFilenames] = useState<Record<string, string>>({});
+  const exportFilename = exportFilenames[activeTab.id] ?? null;
+
+  const [showExportSetup, setShowExportSetup] = useState(false);
+  const [setupFilename, setSetupFilename] = useState("");
   const [exporting, setExporting] = useState(false);
   const [exportMessage, setExportMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
@@ -40,6 +47,44 @@ export function ResultTable() {
       .then((c) => setExportDir(c.export_dir))
       .catch(() => {});
   }, []);
+
+  function openExportSetup() {
+    setSetupFilename(exportFilename ?? defaultFilename(activeTab.title, activeTab.linkedScript));
+    setShowExportSetup(true);
+  }
+
+  async function handleExportClick() {
+    if (!exportFilename) {
+      openExportSetup();
+    } else {
+      await runExport(exportFilename);
+    }
+  }
+
+  async function handleSetupConfirm() {
+    const filename = setupFilename.trim();
+    if (!filename) return;
+    setExportFilenames((prev) => ({ ...prev, [activeTab.id]: filename }));
+    setShowExportSetup(false);
+    await runExport(filename);
+  }
+
+  async function runExport(filename: string) {
+    setExporting(true);
+    setExportMessage(null);
+    try {
+      const savedPath = await invoke<string>("export_query_csv", {
+        sql: activeSql,
+        exportDir,
+        filename,
+      });
+      setExportMessage({ type: "success", text: `保存しました: ${savedPath}` });
+    } catch (e) {
+      setExportMessage({ type: "error", text: String(e) });
+    } finally {
+      setExporting(false);
+    }
+  }
 
   const columnHelper = createColumnHelper<Record<string, unknown>>();
 
@@ -79,25 +124,6 @@ export function ResultTable() {
     initialState: { pagination: { pageSize: PAGE_SIZE } },
   });
 
-  async function handleExport() {
-    setShowExportConfirm(false);
-    setExporting(true);
-    setExportMessage(null);
-    try {
-      const filename = generateFilename();
-      const savedPath = await invoke<string>("export_query_csv", {
-        sql: activeSql,
-        exportDir,
-        filename,
-      });
-      setExportMessage({ type: "success", text: `保存しました: ${savedPath}` });
-    } catch (e) {
-      setExportMessage({ type: "error", text: String(e) });
-    } finally {
-      setExporting(false);
-    }
-  }
-
   if (error) {
     return (
       <div className="p-3 text-sm text-destructive border border-destructive/30 rounded m-2 bg-destructive/5">
@@ -121,19 +147,32 @@ export function ResultTable() {
           </span>
         )}
         <div className="flex-1" />
-        <Button
-          size="sm"
-          variant="ghost"
-          className="h-6 text-xs gap-1"
-          onClick={() => setShowExportConfirm(true)}
-          disabled={exporting}
-          title="全件をCSVに保存（クエリを再実行します）"
-        >
-          {exporting
-            ? <LoaderIcon className="h-3 w-3 animate-spin" />
-            : <DownloadIcon className="h-3 w-3" />}
-          Export CSV
-        </Button>
+        {/* Export CSV button group */}
+        <div className="flex items-center border rounded overflow-hidden">
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-6 text-xs gap-1 rounded-none border-r"
+            onClick={handleExportClick}
+            disabled={exporting}
+            title={exportFilename ? `${exportDir}/${exportFilename} に保存` : "Export先を設定してCSV保存"}
+          >
+            {exporting
+              ? <LoaderIcon className="h-3 w-3 animate-spin" />
+              : <DownloadIcon className="h-3 w-3" />}
+            Export CSV
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-6 px-1.5 rounded-none"
+            onClick={openExportSetup}
+            disabled={exporting}
+            title="Export先を変更"
+          >
+            <Settings2Icon className="h-3 w-3" />
+          </Button>
+        </div>
       </div>
 
       {/* Export result message */}
@@ -191,24 +230,33 @@ export function ResultTable() {
         </div>
       )}
 
-      {/* Export confirmation dialog */}
-      {showExportConfirm && (
+      {/* Export setup dialog */}
+      {showExportSetup && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
           <div className="bg-popover border rounded-lg shadow-xl p-4 w-80 text-sm">
-            <p className="font-semibold mb-2">CSVにエクスポート</p>
-            <p className="text-xs text-muted-foreground mb-1">
-              現在のクエリを再実行して全件をCSVに保存します。
-              データ量によっては時間がかかる場合があります。
+            <p className="font-semibold mb-2">Export先の設定</p>
+            <p className="text-xs text-muted-foreground mb-3">
+              ファイル名を設定すると、次回からワンクリックでExportできます。
             </p>
-            <p className="text-xs text-muted-foreground mb-4">
-              保存先: <span className="font-mono">{exportDir}/query_*.csv</span>
-            </p>
+            <div className="mb-4">
+              <label className="text-xs text-muted-foreground block mb-1">ファイル名</label>
+              <input
+                className="w-full border rounded px-2 py-1 text-xs bg-background font-mono"
+                value={setupFilename}
+                onChange={(e) => setSetupFilename(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleSetupConfirm()}
+                autoFocus
+              />
+              <p className="text-[10px] text-muted-foreground mt-1 font-mono truncate">
+                {exportDir}/{setupFilename}
+              </p>
+            </div>
             <div className="flex justify-end gap-2">
-              <Button size="sm" variant="ghost" onClick={() => setShowExportConfirm(false)}>
+              <Button size="sm" variant="ghost" onClick={() => setShowExportSetup(false)}>
                 キャンセル
               </Button>
-              <Button size="sm" onClick={handleExport}>
-                エクスポート
+              <Button size="sm" onClick={handleSetupConfirm} disabled={!setupFilename.trim()}>
+                設定してExport
               </Button>
             </div>
           </div>
