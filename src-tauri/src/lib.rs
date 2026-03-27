@@ -13,6 +13,11 @@ use notify::Watcher;
 use tauri::{Emitter, Manager};
 
 #[tauri::command]
+async fn get_mcp_server_status(handle: tauri::State<'_, Arc<McpServerHandle>>) -> Result<bool, String> {
+    Ok(handle.is_running().await)
+}
+
+#[tauri::command]
 async fn stop_mcp_server(handle: tauri::State<'_, Arc<McpServerHandle>>) -> Result<(), String> {
     handle.stop().await;
     Ok(())
@@ -167,6 +172,7 @@ pub fn run() {
             commands::metadata::get_dbt_table_meta,
             commands::metadata::set_table_comment,
             commands::metadata::set_column_comment,
+            get_mcp_server_status,
             stop_mcp_server,
             restart_mcp_server,
         ])

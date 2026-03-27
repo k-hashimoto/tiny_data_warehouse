@@ -30,6 +30,10 @@ function App() {
   const [mcpControlling, setMcpControlling] = useState(false);
 
   useEffect(() => {
+    // Query current status on mount to handle race condition where
+    // mcp-server-ready fires before listeners are registered
+    invoke<boolean>("get_mcp_server_status").then((ready) => setMcpServerReady(ready));
+
     const unlisten1 = listen("mcp-active", () => setMcpActive(true));
     const unlisten2 = listen("mcp-idle", () => setMcpActive(false));
     const unlisten3 = listen("mcp-server-ready", () => setMcpServerReady(true));

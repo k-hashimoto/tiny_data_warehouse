@@ -35,6 +35,11 @@ impl McpServerHandle {
             let _ = tx.send(());
         }
     }
+
+    /// Returns true if the server is currently running.
+    pub async fn is_running(&self) -> bool {
+        self.0.lock().await.is_some()
+    }
 }
 
 // ---------------------------------------------------------------------------
