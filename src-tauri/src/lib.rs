@@ -2,9 +2,13 @@ mod commands;
 mod config;
 mod db;
 mod file_io;
+mod mcp;
 mod scheduler;
 
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 use db::worker::DbWorker;
+use mcp::McpLock;
 use notify::Watcher;
 use tauri::{Emitter, Manager};
 
@@ -28,7 +32,21 @@ pub fn run() {
                 app_db_path.to_str().unwrap_or(":memory:"),
                 dbt_db_path.to_str().unwrap_or(""),
             );
-            app.manage(db);
+            app.manage(db.clone());
+
+            // MCP lock — shared between the MCP server task and Tauri commands
+            let mcp_active = Arc::new(AtomicBool::new(false));
+            app.manage(McpLock(mcp_active.clone()));
+
+            // Launch the built-in MCP server (stdio JSON-RPC)
+            let mcp_home = home.to_str().unwrap_or("").to_string();
+            let mcp_app = app.handle().clone();
+            tauri::async_runtime::spawn(mcp::run_mcp_server(
+                db,
+                mcp_active,
+                mcp_home,
+                mcp_app,
+            ));
 
             commands::scripts::seed_default_scripts(app.handle());
 
