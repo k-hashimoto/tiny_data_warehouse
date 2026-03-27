@@ -13,9 +13,15 @@
 
 ## Installation (macOS)
 
-Download the latest `.dmg` from the [Releases](../../releases) page and install the app.
+Run the following command in Terminal to download and install the app automatically:
 
-> **Note:** Since this app is not code-signed, macOS may show a "damaged" error when you try to open it. Run the following command in Terminal to fix this:
+```bash
+curl -fsSL https://raw.githubusercontent.com/k-hashimoto/tiny_data_warehouse/main/install.sh | bash
+```
+
+This script downloads the latest release from GitHub, installs it to `/Applications`, and removes the macOS quarantine flag — no manual steps required.
+
+> **Manual installation:** You can also download the `.dmg` from the [Releases](../../releases) page. Since this app is not code-signed, macOS may show a "damaged" error. Run the following command to fix it:
 >
 > ```bash
 > xattr -dr com.apple.quarantine /Applications/Tiny\ Data\ Ware\ House.app
