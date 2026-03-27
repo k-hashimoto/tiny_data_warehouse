@@ -1,55 +1,48 @@
+use std::collections::HashMap;
 use std::io::Write;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use axum::{
+    extract::{Query, State as AxumState},
+    http::StatusCode,
+    response::sse::{Event, Sse},
+    routing::{get, post},
+    Router,
+};
+use futures::stream::{self, StreamExt};
+use serde::Deserialize;
 use serde_json::{json, Value};
 use tauri::Emitter;
+use tokio::sync::{mpsc, Mutex};
+use tokio_stream::wrappers::ReceiverStream;
+use uuid::Uuid;
 
 use crate::db::worker::DbWorker;
-
-fn write_log(log_path: &std::path::Path, message: &str) {
-    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(log_path) {
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default();
-        // Format: [YYYY-MM-DDTHH:MM:SSZ] message
-        let secs = now.as_secs();
-        let (y, mo, d, h, mi, s) = epoch_to_datetime(secs);
-        let _ = writeln!(f, "[{y:04}-{mo:02}-{d:02}T{h:02}:{mi:02}:{s:02}Z] {message}");
-    }
-}
-
-fn epoch_to_datetime(secs: u64) -> (u64, u64, u64, u64, u64, u64) {
-    let s = secs % 60;
-    let mins = secs / 60;
-    let mi = mins % 60;
-    let hours = mins / 60;
-    let h = hours % 24;
-    let days = hours / 24;
-    // Gregorian calendar calculation
-    let mut y = 1970u64;
-    let mut remaining = days;
-    loop {
-        let leap = (y % 4 == 0 && y % 100 != 0) || y % 400 == 0;
-        let dy = if leap { 366 } else { 365 };
-        if remaining < dy { break; }
-        remaining -= dy;
-        y += 1;
-    }
-    let leap = (y % 4 == 0 && y % 100 != 0) || y % 400 == 0;
-    let month_days: [u64; 12] = [31, if leap { 29 } else { 28 }, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
-    let mut mo = 1u64;
-    for &md in &month_days {
-        if remaining < md { break; }
-        remaining -= md;
-        mo += 1;
-    }
-    (y, mo, remaining + 1, h, mi, s)
-}
 
 /// Shared lock: true while an MCP tool call is in progress.
 /// Tauri commands check this and reject requests when true.
 pub struct McpLock(pub Arc<AtomicBool>);
+
+pub const MCP_PORT: u16 = 7741;
+
+// ---------------------------------------------------------------------------
+// Shared state for the HTTP server
+// ---------------------------------------------------------------------------
+
+#[derive(Clone)]
+struct McpServerState {
+    db: DbWorker,
+    active: Arc<AtomicBool>,
+    home_dir: String,
+    app_handle: tauri::AppHandle,
+    /// session_id → sender for SSE events
+    sessions: Arc<Mutex<HashMap<String, mpsc::Sender<String>>>>,
+    log_path: std::path::PathBuf,
+}
+
+// ---------------------------------------------------------------------------
+// Entry point
+// ---------------------------------------------------------------------------
 
 pub async fn run_mcp_server(
     db: DbWorker,
@@ -57,7 +50,6 @@ pub async fn run_mcp_server(
     home_dir: String,
     app_handle: tauri::AppHandle,
 ) {
-    // ~/.tdwh/logs/mcp_access.log
     let log_path = std::path::PathBuf::from(&home_dir)
         .join(".tdwh")
         .join("logs")
@@ -65,41 +57,104 @@ pub async fn run_mcp_server(
     if let Some(parent) = log_path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
-    write_log(&log_path, "MCP server started");
+    write_log(&log_path, &format!("MCP server started (HTTP/SSE on port {MCP_PORT})"));
 
-    let stdin = tokio::io::stdin();
-    let stdout = tokio::io::stdout();
-    let mut reader = BufReader::new(stdin);
-    let mut writer = tokio::io::BufWriter::new(stdout);
-    let mut line = String::new();
+    let state = McpServerState {
+        db,
+        active,
+        home_dir,
+        app_handle,
+        sessions: Arc::new(Mutex::new(HashMap::new())),
+        log_path,
+    };
 
-    loop {
-        line.clear();
-        match reader.read_line(&mut line).await {
-            Ok(0) => break, // EOF — client disconnected
-            Ok(_) => {
-                let trimmed = line.trim();
-                if trimmed.is_empty() {
-                    continue;
-                }
-                let req: Value = match serde_json::from_str(trimmed) {
-                    Ok(v) => v,
-                    Err(_) => continue,
-                };
-                let response =
-                    handle_request(&req, &db, &active, &home_dir, &app_handle, &log_path).await;
-                if let Some(resp) = response {
-                    let mut resp_str =
-                        serde_json::to_string(&resp).unwrap_or_default();
-                    resp_str.push('\n');
-                    let _ = writer.write_all(resp_str.as_bytes()).await;
-                    let _ = writer.flush().await;
-                }
-            }
-            Err(_) => break,
+    let router = Router::new()
+        .route("/sse", get(sse_handler))
+        .route("/message", post(message_handler))
+        .with_state(state);
+
+    let addr = std::net::SocketAddr::from(([127, 0, 0, 1], MCP_PORT));
+    let listener = match tokio::net::TcpListener::bind(addr).await {
+        Ok(l) => l,
+        Err(e) => {
+            eprintln!("MCP server: failed to bind port {MCP_PORT}: {e}");
+            return;
         }
+    };
+
+    if let Err(e) = axum::serve(listener, router).await {
+        eprintln!("MCP server error: {e}");
     }
 }
+
+// ---------------------------------------------------------------------------
+// GET /sse  — open SSE stream, first event is the POST endpoint URL
+// ---------------------------------------------------------------------------
+
+async fn sse_handler(
+    AxumState(state): AxumState<McpServerState>,
+) -> Sse<impl futures::Stream<Item = Result<Event, std::convert::Infallible>>> {
+    let session_id = Uuid::new_v4().to_string();
+    let (tx, rx) = mpsc::channel::<String>(32);
+
+    {
+        let mut sessions = state.sessions.lock().await;
+        sessions.insert(session_id.clone(), tx);
+    }
+
+    write_log(&state.log_path, &format!("SSE session opened: {session_id}"));
+
+    let endpoint_url = format!("http://localhost:{MCP_PORT}/message?sessionId={session_id}");
+    let endpoint_event = Ok(Event::default().event("endpoint").data(endpoint_url));
+
+    let message_stream = ReceiverStream::new(rx).map(|msg| {
+        Ok(Event::default().event("message").data(msg))
+    });
+
+    let combined = stream::once(async move { endpoint_event }).chain(message_stream);
+    Sse::new(combined)
+}
+
+// ---------------------------------------------------------------------------
+// POST /message?sessionId=xxx  — receive JSON-RPC, respond via SSE
+// ---------------------------------------------------------------------------
+
+#[derive(Deserialize)]
+struct SessionQuery {
+    #[serde(rename = "sessionId")]
+    session_id: String,
+}
+
+async fn message_handler(
+    AxumState(state): AxumState<McpServerState>,
+    Query(query): Query<SessionQuery>,
+    body: axum::body::Bytes,
+) -> StatusCode {
+    let req: Value = match serde_json::from_slice(&body) {
+        Ok(v) => v,
+        Err(_) => return StatusCode::BAD_REQUEST,
+    };
+
+    let session_id = query.session_id.clone();
+    let sessions = state.sessions.clone();
+
+    tokio::spawn(async move {
+        let response = handle_request(&req, &state.db, &state.active, &state.home_dir, &state.app_handle, &state.log_path).await;
+        if let Some(resp) = response {
+            let resp_str = serde_json::to_string(&resp).unwrap_or_default();
+            let sessions = sessions.lock().await;
+            if let Some(tx) = sessions.get(&session_id) {
+                let _ = tx.send(resp_str).await;
+            }
+        }
+    });
+
+    StatusCode::ACCEPTED
+}
+
+// ---------------------------------------------------------------------------
+// JSON-RPC request handler
+// ---------------------------------------------------------------------------
 
 async fn handle_request(
     req: &Value,
@@ -126,20 +181,26 @@ async fn handle_request(
             }
         })),
 
-        "notifications/initialized" | "ping" => {
-            // Notifications have no id — return nothing; ping returns empty result
-            if method == "ping" {
-                Some(json!({ "jsonrpc": "2.0", "id": id, "result": {} }))
-            } else {
-                None
-            }
-        }
+        "notifications/initialized" => None,
+
+        "ping" => Some(json!({ "jsonrpc": "2.0", "id": id, "result": {} })),
 
         "tools/list" => Some(json!({
             "jsonrpc": "2.0",
             "id": id,
             "result": {
                 "tools": [
+                    {
+                        "name": "echo",
+                        "description": "MCPサーバーの疎通確認用。受け取ったメッセージをそのまま返す。",
+                        "inputSchema": {
+                            "type": "object",
+                            "properties": {
+                                "message": { "type": "string", "description": "返してほしいメッセージ" }
+                            },
+                            "required": ["message"]
+                        }
+                    },
                     {
                         "name": "run_query",
                         "description": "Execute a SQL query on DuckDB and return results as JSON.",
@@ -195,17 +256,6 @@ async fn handle_request(
                             },
                             "required": ["sql", "export_dir", "filename"]
                         }
-                    },
-                    {
-                        "name": "echo",
-                        "description": "MCPサーバーの疎通確認用。受け取ったメッセージをそのまま返す。",
-                        "inputSchema": {
-                            "type": "object",
-                            "properties": {
-                                "message": { "type": "string", "description": "返してほしいメッセージ" }
-                            },
-                            "required": ["message"]
-                        }
                     }
                 ]
             }
@@ -216,7 +266,6 @@ async fn handle_request(
             let tool_name = params.get("name")?.as_str()?;
             let args = params.get("arguments").cloned().unwrap_or(json!({}));
 
-            // Acquire lock & notify frontend
             active.store(true, Ordering::SeqCst);
             let _ = app_handle.emit("mcp-active", ());
 
@@ -224,10 +273,8 @@ async fn handle_request(
             let start = std::time::Instant::now();
 
             let result = call_tool(tool_name, &args, db, home_dir).await;
-
             let elapsed_ms = start.elapsed().as_millis();
 
-            // Release lock & notify frontend
             active.store(false, Ordering::SeqCst);
             let _ = app_handle.emit("mcp-idle", ());
 
@@ -264,6 +311,10 @@ async fn handle_request(
     }
 }
 
+// ---------------------------------------------------------------------------
+// Tool implementations
+// ---------------------------------------------------------------------------
+
 async fn call_tool(
     name: &str,
     args: &Value,
@@ -271,6 +322,14 @@ async fn call_tool(
     home_dir: &str,
 ) -> Result<String, String> {
     match name {
+        "echo" => {
+            let message = args
+                .get("message")
+                .and_then(|v| v.as_str())
+                .ok_or("Missing argument: message")?;
+            Ok(message.to_string())
+        }
+
         "run_query" => {
             let sql = args
                 .get("sql")
@@ -351,14 +410,58 @@ async fn call_tool(
             Ok(out_path.to_str().unwrap_or("").to_string())
         }
 
-        "echo" => {
-            let message = args
-                .get("message")
-                .and_then(|v| v.as_str())
-                .ok_or("Missing argument: message")?;
-            Ok(message.to_string())
-        }
-
         _ => Err(format!("Unknown tool: {name}")),
     }
+}
+
+// ---------------------------------------------------------------------------
+// Logging helpers
+// ---------------------------------------------------------------------------
+
+fn write_log(log_path: &std::path::Path, message: &str) {
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(log_path)
+    {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default();
+        let secs = now.as_secs();
+        let (y, mo, d, h, mi, s) = epoch_to_datetime(secs);
+        let _ = writeln!(f, "[{y:04}-{mo:02}-{d:02}T{h:02}:{mi:02}:{s:02}Z] {message}");
+    }
+}
+
+fn epoch_to_datetime(secs: u64) -> (u64, u64, u64, u64, u64, u64) {
+    let s = secs % 60;
+    let mins = secs / 60;
+    let mi = mins % 60;
+    let hours = mins / 60;
+    let h = hours % 24;
+    let days = hours / 24;
+    let mut y = 1970u64;
+    let mut remaining = days;
+    loop {
+        let leap = (y % 4 == 0 && y % 100 != 0) || y % 400 == 0;
+        let dy = if leap { 366 } else { 365 };
+        if remaining < dy {
+            break;
+        }
+        remaining -= dy;
+        y += 1;
+    }
+    let leap = (y % 4 == 0 && y % 100 != 0) || y % 400 == 0;
+    let month_days: [u64; 12] = [
+        31, if leap { 29 } else { 28 }, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31,
+    ];
+    let mut mo = 1u64;
+    for &md in &month_days {
+        if remaining < md {
+            break;
+        }
+        remaining -= md;
+        mo += 1;
+    }
+    (y, mo, remaining + 1, h, mi, s)
 }
