@@ -1,21 +1,15 @@
-use std::collections::HashMap;
 use std::io::Write;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use axum::{
-    extract::{Query, State as AxumState},
-    http::StatusCode,
-    response::sse::{Event, Sse},
+    extract::State as AxumState,
+    http::{HeaderMap, StatusCode},
+    response::{IntoResponse, Json},
     routing::{get, post},
     Router,
 };
-use futures::stream::{self, StreamExt};
-use serde::Deserialize;
 use serde_json::{json, Value};
 use tauri::Emitter;
-use tokio::sync::{mpsc, Mutex};
-use tokio_stream::wrappers::ReceiverStream;
-use uuid::Uuid;
 
 use crate::db::worker::DbWorker;
 
@@ -26,7 +20,7 @@ pub struct McpLock(pub Arc<AtomicBool>);
 pub const MCP_PORT: u16 = 7741;
 
 // ---------------------------------------------------------------------------
-// Shared state for the HTTP server
+// Shared state
 // ---------------------------------------------------------------------------
 
 #[derive(Clone)]
@@ -35,8 +29,6 @@ struct McpServerState {
     active: Arc<AtomicBool>,
     home_dir: String,
     app_handle: tauri::AppHandle,
-    /// session_id → sender for SSE events
-    sessions: Arc<Mutex<HashMap<String, mpsc::Sender<String>>>>,
     log_path: std::path::PathBuf,
 }
 
@@ -57,20 +49,24 @@ pub async fn run_mcp_server(
     if let Some(parent) = log_path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
-    write_log(&log_path, &format!("MCP server started (HTTP/SSE on port {MCP_PORT})"));
+    write_log(
+        &log_path,
+        &format!("MCP server started (Streamable HTTP on port {MCP_PORT})"),
+    );
 
     let state = McpServerState {
         db,
         active,
         home_dir,
         app_handle,
-        sessions: Arc::new(Mutex::new(HashMap::new())),
         log_path,
     };
 
     let router = Router::new()
-        .route("/sse", get(sse_handler))
-        .route("/message", post(message_handler))
+        // Streamable HTTP: single POST endpoint for all JSON-RPC traffic
+        .route("/mcp", post(mcp_handler))
+        // Health check
+        .route("/mcp", get(health_handler))
         .with_state(state);
 
     let addr = std::net::SocketAddr::from(([127, 0, 0, 1], MCP_PORT));
@@ -88,68 +84,44 @@ pub async fn run_mcp_server(
 }
 
 // ---------------------------------------------------------------------------
-// GET /sse  — open SSE stream, first event is the POST endpoint URL
+// GET /mcp  — health check
 // ---------------------------------------------------------------------------
 
-async fn sse_handler(
-    AxumState(state): AxumState<McpServerState>,
-) -> Sse<impl futures::Stream<Item = Result<Event, std::convert::Infallible>>> {
-    let session_id = Uuid::new_v4().to_string();
-    let (tx, rx) = mpsc::channel::<String>(32);
-
-    {
-        let mut sessions = state.sessions.lock().await;
-        sessions.insert(session_id.clone(), tx);
-    }
-
-    write_log(&state.log_path, &format!("SSE session opened: {session_id}"));
-
-    let endpoint_url = format!("http://localhost:{MCP_PORT}/message?sessionId={session_id}");
-    let endpoint_event = Ok(Event::default().event("endpoint").data(endpoint_url));
-
-    let message_stream = ReceiverStream::new(rx).map(|msg| {
-        Ok(Event::default().event("message").data(msg))
-    });
-
-    let combined = stream::once(async move { endpoint_event }).chain(message_stream);
-    Sse::new(combined)
+async fn health_handler() -> impl IntoResponse {
+    Json(json!({ "status": "ok", "server": "tiny-data-warehouse", "transport": "streamable-http" }))
 }
 
 // ---------------------------------------------------------------------------
-// POST /message?sessionId=xxx  — receive JSON-RPC, respond via SSE
+// POST /mcp  — Streamable HTTP MCP endpoint (2025-03-26 spec)
 // ---------------------------------------------------------------------------
 
-#[derive(Deserialize)]
-struct SessionQuery {
-    #[serde(rename = "sessionId")]
-    session_id: String,
-}
-
-async fn message_handler(
+async fn mcp_handler(
     AxumState(state): AxumState<McpServerState>,
-    Query(query): Query<SessionQuery>,
+    _headers: HeaderMap,
     body: axum::body::Bytes,
-) -> StatusCode {
+) -> impl IntoResponse {
     let req: Value = match serde_json::from_slice(&body) {
         Ok(v) => v,
-        Err(_) => return StatusCode::BAD_REQUEST,
+        Err(_) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(json!({
+                    "jsonrpc": "2.0",
+                    "id": null,
+                    "error": { "code": -32700, "message": "Parse error" }
+                })),
+            );
+        }
     };
 
-    let session_id = query.session_id.clone();
-    let sessions = state.sessions.clone();
+    let response =
+        handle_request(&req, &state.db, &state.active, &state.home_dir, &state.app_handle, &state.log_path).await;
 
-    tokio::spawn(async move {
-        let response = handle_request(&req, &state.db, &state.active, &state.home_dir, &state.app_handle, &state.log_path).await;
-        if let Some(resp) = response {
-            let resp_str = serde_json::to_string(&resp).unwrap_or_default();
-            let sessions = sessions.lock().await;
-            if let Some(tx) = sessions.get(&session_id) {
-                let _ = tx.send(resp_str).await;
-            }
-        }
-    });
-
-    StatusCode::ACCEPTED
+    match response {
+        Some(resp) => (StatusCode::OK, Json(resp)),
+        // Notifications (no id) → 202 Accepted with empty body, but axum needs a response
+        None => (StatusCode::ACCEPTED, Json(json!({}))),
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -172,7 +144,7 @@ async fn handle_request(
             "jsonrpc": "2.0",
             "id": id,
             "result": {
-                "protocolVersion": "2024-11-05",
+                "protocolVersion": "2025-03-26",
                 "capabilities": { "tools": {} },
                 "serverInfo": {
                     "name": "tiny-data-warehouse",
