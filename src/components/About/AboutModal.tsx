@@ -37,7 +37,7 @@ export function AboutModal({ onClose }: Props) {
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b shrink-0">
           <div>
-            <p className="text-sm font-semibold">Tiny Data Ware House</p>
+            <p className="text-sm font-semibold">TinyDataWarehouse</p>
             <p className="text-xs text-muted-foreground mt-0.5">v0.1.0</p>
           </div>
           <button onClick={onClose} className="opacity-50 hover:opacity-100 p-1">
