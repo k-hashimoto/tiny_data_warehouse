@@ -14,6 +14,7 @@ export interface TableInfo {
   schema_name: string;
   row_count: number;
   column_count: number;
+  csv_source_path: string | null;
 }
 
 export interface CsvImportOptions {

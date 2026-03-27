@@ -93,6 +93,11 @@ pub enum WorkerCmd {
         comment: String,
         tx: tokio::sync::oneshot::Sender<Result<(), String>>,
     },
+    ReimportCsv {
+        schema_name: String,
+        table_name: String,
+        tx: tokio::sync::oneshot::Sender<Result<TableInfo, String>>,
+    },
 }
 
 /// DuckDB をシングルスレッドで動かすアクター
@@ -115,6 +120,19 @@ impl DbWorker {
             // Set dbt_db variable so users can ATTACH with: ATTACH getvariable('dbt_db') AS dbt
             let set_var = format!("SET VARIABLE dbt_db = '{}'", dbt_db_path.replace('\'', "''"));
             let _ = conn.execute_batch(&set_var);
+            // Initialize internal metadata schema for CSV source tracking
+            let _ = conn.execute_batch(
+                "CREATE SCHEMA IF NOT EXISTS _tdw;
+                 CREATE TABLE IF NOT EXISTS _tdw.csv_sources (
+                     schema_name VARCHAR NOT NULL,
+                     table_name  VARCHAR NOT NULL,
+                     file_path   VARCHAR NOT NULL,
+                     delimiter   VARCHAR NOT NULL,
+                     encoding    VARCHAR NOT NULL,
+                     has_header  BOOLEAN NOT NULL,
+                     PRIMARY KEY (schema_name, table_name)
+                 );"
+            );
 
             for cmd in rx {
                 match cmd {
@@ -176,6 +194,9 @@ impl DbWorker {
                     }
                     WorkerCmd::SetColumnComment { schema_name, table_name, column_name, comment, tx } => {
                         let _ = tx.send(exec_set_column_comment(&conn, &schema_name, &table_name, &column_name, &comment));
+                    }
+                    WorkerCmd::ReimportCsv { schema_name, table_name, tx } => {
+                        let _ = tx.send(exec_reimport_csv(&conn, &schema_name, &table_name));
                     }
                 }
             }
@@ -291,6 +312,12 @@ impl DbWorker {
         self.tx.send(WorkerCmd::SetColumnComment { schema_name, table_name, column_name, comment, tx: resp_tx }).map_err(|e| e.to_string())?;
         resp_rx.await.map_err(|e| e.to_string())?
     }
+
+    pub async fn reimport_csv(&self, schema_name: String, table_name: String) -> Result<TableInfo, String> {
+        let (resp_tx, resp_rx) = tokio::sync::oneshot::channel();
+        self.tx.send(WorkerCmd::ReimportCsv { schema_name, table_name, tx: resp_tx }).map_err(|e| e.to_string())?;
+        resp_rx.await.map_err(|e| e.to_string())?
+    }
 }
 
 const RESULT_ROW_LIMIT: usize = 1000;
@@ -331,7 +358,7 @@ fn exec_query(conn: &Connection, sql: &str) -> Result<QueryResult, String> {
 
 fn exec_list_tables(conn: &Connection) -> Result<Vec<TableInfo>, String> {
     let mut stmt = conn
-        .prepare("SELECT schema_name, table_name FROM duckdb_tables() WHERE schema_name NOT IN ('information_schema', 'pg_catalog') AND database_name != 'dbt' ORDER BY schema_name, table_name")
+        .prepare("SELECT schema_name, table_name FROM duckdb_tables() WHERE schema_name NOT IN ('information_schema', 'pg_catalog', '_tdw') AND database_name != 'dbt' ORDER BY schema_name, table_name")
         .map_err(|e| e.to_string())?;
     let mut rows = stmt.query([]).map_err(|e| e.to_string())?;
 
@@ -359,7 +386,14 @@ fn exec_list_tables(conn: &Connection) -> Result<Vec<TableInfo>, String> {
                 |r| r.get(0),
             )
             .unwrap_or(0);
-        tables.push(TableInfo { name, schema_name, row_count, column_count });
+        let csv_source_path: Option<String> = conn
+            .query_row(
+                "SELECT file_path FROM _tdw.csv_sources WHERE schema_name = ? AND table_name = ?",
+                [&schema_name, &name],
+                |r| r.get(0),
+            )
+            .ok();
+        tables.push(TableInfo { name, schema_name, row_count, column_count, csv_source_path });
     }
     Ok(tables)
 }
@@ -407,7 +441,7 @@ fn exec_list_dbt_tables(dbt_path: &str) -> Result<Vec<TableInfo>, String> {
                 |r| r.get(0),
             )
             .unwrap_or(0);
-        tables.push(TableInfo { name, schema_name, row_count, column_count });
+        tables.push(TableInfo { name, schema_name, row_count, column_count, csv_source_path: None });
     }
     Ok(tables)
 }
@@ -479,6 +513,26 @@ fn exec_import_csv(conn: &Connection, opts: &CsvImportOptions) -> Result<TableIn
 
     conn.execute(&sql, []).map_err(|e| e.to_string())?;
 
+    // Save CSV source info for re-import (not for append, where the source mapping is ambiguous)
+    if opts.if_exists != "append" {
+        let upsert = format!(
+            "INSERT INTO _tdw.csv_sources (schema_name, table_name, file_path, delimiter, encoding, has_header)
+             VALUES ('{}', '{}', '{}', '{}', '{}', {})
+             ON CONFLICT (schema_name, table_name) DO UPDATE SET
+                 file_path = EXCLUDED.file_path,
+                 delimiter = EXCLUDED.delimiter,
+                 encoding  = EXCLUDED.encoding,
+                 has_header = EXCLUDED.has_header",
+            opts.schema_name.replace('\'', "''"),
+            opts.table_name.replace('\'', "''"),
+            opts.file_path.replace('\'', "''"),
+            opts.delimiter.replace('\'', "''"),
+            opts.encoding.replace('\'', "''"),
+            if opts.has_header { "true" } else { "false" },
+        );
+        let _ = conn.execute(&upsert, []);
+    }
+
     let row_count: i64 = conn
         .query_row(&format!("SELECT COUNT(*) FROM {}", qualified), [], |r| r.get(0))
         .unwrap_or(0);
@@ -492,7 +546,13 @@ fn exec_import_csv(conn: &Connection, opts: &CsvImportOptions) -> Result<TableIn
         )
         .unwrap_or(0);
 
-    Ok(TableInfo { name: opts.table_name.clone(), schema_name: opts.schema_name.clone(), row_count, column_count })
+    Ok(TableInfo {
+        name: opts.table_name.clone(),
+        schema_name: opts.schema_name.clone(),
+        row_count,
+        column_count,
+        csv_source_path: Some(opts.file_path.clone()),
+    })
 }
 
 fn exec_preview_dbt_table(dbt_path: &str, schema_name: &str, table_name: &str, limit: i64) -> Result<QueryResult, String> {
@@ -511,7 +571,7 @@ fn exec_preview_dbt_table(dbt_path: &str, schema_name: &str, table_name: &str, l
 
 fn exec_list_schemas(conn: &Connection) -> Result<Vec<String>, String> {
     let mut stmt = conn
-        .prepare("SELECT schema_name FROM duckdb_schemas() WHERE schema_name NOT IN ('information_schema', 'pg_catalog') AND database_name != 'dbt' ORDER BY schema_name")
+        .prepare("SELECT schema_name FROM duckdb_schemas() WHERE schema_name NOT IN ('information_schema', 'pg_catalog', '_tdw') AND database_name != 'dbt' ORDER BY schema_name")
         .map_err(|e| e.to_string())?;
     let mut rows = stmt.query([]).map_err(|e| e.to_string())?;
     let mut schemas = Vec::new();
@@ -666,4 +726,25 @@ fn exec_set_column_comment(conn: &Connection, schema_name: &str, table_name: &st
     };
     conn.execute(&sql, []).map_err(|e| e.to_string())?;
     Ok(())
+}
+
+fn exec_reimport_csv(conn: &Connection, schema_name: &str, table_name: &str) -> Result<TableInfo, String> {
+    let result: Result<(String, String, String, bool), _> = conn.query_row(
+        "SELECT file_path, delimiter, encoding, has_header FROM _tdw.csv_sources WHERE schema_name = ? AND table_name = ?",
+        [schema_name, table_name],
+        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+    );
+    let (file_path, delimiter, encoding, has_header) = result
+        .map_err(|_| format!("CSV source not found for {}.{}", schema_name, table_name))?;
+
+    let opts = CsvImportOptions {
+        file_path,
+        table_name: table_name.to_string(),
+        schema_name: schema_name.to_string(),
+        has_header,
+        delimiter,
+        encoding,
+        if_exists: "replace".to_string(),
+    };
+    exec_import_csv(conn, &opts)
 }

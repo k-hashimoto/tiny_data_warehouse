@@ -102,6 +102,7 @@ pub fn run() {
             commands::explorer::preview_table,
             commands::csv::preview_csv,
             commands::csv::import_csv,
+            commands::csv::reimport_csv,
             commands::csv::export_csv,
             commands::csv::export_query_csv,
             commands::explorer::list_schemas,

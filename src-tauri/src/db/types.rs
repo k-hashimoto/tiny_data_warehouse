@@ -15,6 +15,7 @@ pub struct TableInfo {
     pub schema_name: String,
     pub row_count: i64,
     pub column_count: i64,
+    pub csv_source_path: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

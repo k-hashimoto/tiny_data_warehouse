@@ -27,6 +27,7 @@ interface ContextMenu {
   type: "table";
   schemaName: string;
   tableName: string;
+  csvSourcePath: string | null;
 }
 
 interface SchemaContextMenu {
@@ -166,10 +167,10 @@ export function TableTree() {
     setPendingFile(null);
   }
 
-  function handleTableContextMenu(e: React.MouseEvent, schemaName: string, tableName: string) {
+  function handleTableContextMenu(e: React.MouseEvent, schemaName: string, tableName: string, csvSourcePath: string | null) {
     e.preventDefault();
     e.stopPropagation();
-    setContextMenu({ x: e.clientX, y: e.clientY, type: "table", schemaName, tableName });
+    setContextMenu({ x: e.clientX, y: e.clientY, type: "table", schemaName, tableName, csvSourcePath });
   }
 
   function handleSchemaContextMenu(e: React.MouseEvent, schemaName: string) {
@@ -181,6 +182,19 @@ export function TableTree() {
   async function confirmDropTable(schemaName: string, tableName: string) {
     setContextMenu(null);
     setDropConfirm({ type: "table", schemaName, tableName });
+  }
+
+  async function handleReimport(schemaName: string, tableName: string) {
+    setContextMenu(null);
+    setStatus("Reloading from CSV...");
+    try {
+      await invoke("reimport_csv", { schemaName, tableName });
+      await refresh();
+      setStatus("Reloaded from CSV");
+    } catch (e) {
+      setError(String(e));
+      setStatus("Error");
+    }
   }
 
   async function confirmDropSchema(schemaName: string) {
@@ -319,7 +333,7 @@ export function TableTree() {
                       <div key={tableKey} className="ml-3">
                         <div
                           className="flex items-center gap-0.5 rounded hover:bg-accent group"
-                          onContextMenu={(e) => handleTableContextMenu(e, schemaName, t.name)}
+                          onContextMenu={(e) => handleTableContextMenu(e, schemaName, t.name, t.csv_source_path)}
                         >
                           <button
                             className="flex items-center justify-center w-4 h-6 shrink-0 text-muted-foreground hover:text-foreground"
@@ -393,6 +407,17 @@ export function TableTree() {
               >
                 SELECT * FROM …
               </button>
+              {contextMenu.csvSourcePath && (
+                <>
+                  <div className="border-t my-1" />
+                  <button
+                    className="w-full text-left text-xs px-3 py-1.5 hover:bg-accent"
+                    onClick={() => handleReimport(contextMenu.schemaName, contextMenu.tableName)}
+                  >
+                    Reload from CSV
+                  </button>
+                </>
+              )}
               <div className="border-t my-1" />
               <button
                 className="w-full text-left text-xs px-3 py-1.5 hover:bg-accent text-destructive"
