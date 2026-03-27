@@ -8,9 +8,34 @@ mod scheduler;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use db::worker::DbWorker;
-use mcp::McpLock;
+use mcp::{McpLock, McpServerHandle};
 use notify::Watcher;
 use tauri::{Emitter, Manager};
+
+#[tauri::command]
+async fn stop_mcp_server(handle: tauri::State<'_, Arc<McpServerHandle>>) -> Result<(), String> {
+    handle.stop().await;
+    Ok(())
+}
+
+#[tauri::command]
+async fn restart_mcp_server(
+    db: tauri::State<'_, DbWorker>,
+    lock: tauri::State<'_, McpLock>,
+    handle: tauri::State<'_, Arc<McpServerHandle>>,
+    app: tauri::AppHandle,
+) -> Result<(), String> {
+    handle.stop().await;
+    // Brief pause to let the port be released
+    tokio::time::sleep(tokio::time::Duration::from_millis(300)).await;
+    let home = app.path().home_dir().map_err(|e| e.to_string())?;
+    let home_str = home.to_str().unwrap_or("").to_string();
+    let db_clone = db.inner().clone();
+    let active_clone = lock.0.clone();
+    let handle_clone = handle.inner().clone();
+    tauri::async_runtime::spawn(mcp::run_mcp_server(db_clone, active_clone, home_str, app, handle_clone));
+    Ok(())
+}
 
 struct FileWatcher(notify::RecommendedWatcher);
 unsafe impl Send for FileWatcher {}
@@ -38,7 +63,11 @@ pub fn run() {
             let mcp_active = Arc::new(AtomicBool::new(false));
             app.manage(McpLock(mcp_active.clone()));
 
-            // Launch the built-in MCP server (stdio JSON-RPC)
+            // MCP server handle — used for stop/restart
+            let mcp_handle = Arc::new(McpServerHandle::empty());
+            app.manage(mcp_handle.clone());
+
+            // Launch the built-in MCP server (Streamable HTTP)
             let mcp_home = home.to_str().unwrap_or("").to_string();
             let mcp_app = app.handle().clone();
             tauri::async_runtime::spawn(mcp::run_mcp_server(
@@ -46,6 +75,7 @@ pub fn run() {
                 mcp_active,
                 mcp_home,
                 mcp_app,
+                mcp_handle,
             ));
 
             commands::scripts::seed_default_scripts(app.handle());
@@ -137,6 +167,8 @@ pub fn run() {
             commands::metadata::get_dbt_table_meta,
             commands::metadata::set_table_comment,
             commands::metadata::set_column_comment,
+            stop_mcp_server,
+            restart_mcp_server,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -19,6 +19,24 @@ pub struct McpLock(pub Arc<AtomicBool>);
 
 pub const MCP_PORT: u16 = 7741;
 
+/// Handle for stopping the MCP server gracefully.
+/// Wraps an optional oneshot sender; calling stop() consumes it.
+pub struct McpServerHandle(pub tokio::sync::Mutex<Option<tokio::sync::oneshot::Sender<()>>>);
+
+impl McpServerHandle {
+    pub fn empty() -> Self {
+        Self(tokio::sync::Mutex::new(None))
+    }
+
+    /// Send shutdown signal if the server is running.
+    pub async fn stop(&self) {
+        let mut guard = self.0.lock().await;
+        if let Some(tx) = guard.take() {
+            let _ = tx.send(());
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Shared state
 // ---------------------------------------------------------------------------
@@ -36,11 +54,14 @@ struct McpServerState {
 // Entry point
 // ---------------------------------------------------------------------------
 
+/// Start the MCP server and register a shutdown handle.
+/// Calling `handle.stop()` will gracefully shut it down.
 pub async fn run_mcp_server(
     db: DbWorker,
     active: Arc<AtomicBool>,
     home_dir: String,
     app_handle: tauri::AppHandle,
+    handle: Arc<McpServerHandle>,
 ) {
     let log_path = std::path::PathBuf::from(&home_dir)
         .join(".tdwh")
@@ -58,8 +79,8 @@ pub async fn run_mcp_server(
         db,
         active,
         home_dir,
-        app_handle,
-        log_path,
+        app_handle: app_handle.clone(),
+        log_path: log_path.clone(),
     };
 
     let router = Router::new()
@@ -73,13 +94,34 @@ pub async fn run_mcp_server(
     let listener = match tokio::net::TcpListener::bind(addr).await {
         Ok(l) => l,
         Err(e) => {
-            eprintln!("MCP server: failed to bind port {MCP_PORT}: {e}");
+            let msg = format!("port {MCP_PORT} bind failed: {e}");
+            write_log(&log_path, &format!("ERROR {msg}"));
+            let _ = app_handle.emit("mcp-server-error", msg);
             return;
         }
     };
 
-    if let Err(e) = axum::serve(listener, router).await {
-        eprintln!("MCP server error: {e}");
+    // Register shutdown channel
+    let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
+    {
+        let mut guard = handle.0.lock().await;
+        *guard = Some(shutdown_tx);
+    }
+
+    write_log(&log_path, &format!("MCP server ready on http://localhost:{MCP_PORT}/mcp"));
+    let _ = app_handle.emit("mcp-server-ready", MCP_PORT);
+
+    let result = axum::serve(listener, router)
+        .with_graceful_shutdown(async move { shutdown_rx.await.ok(); })
+        .await;
+
+    write_log(&log_path, "MCP server stopped");
+    let _ = app_handle.emit("mcp-server-stopped", ());
+
+    if let Err(e) = result {
+        let msg = format!("server error: {e}");
+        write_log(&log_path, &format!("ERROR {msg}"));
+        let _ = app_handle.emit("mcp-server-error", msg);
     }
 }
 

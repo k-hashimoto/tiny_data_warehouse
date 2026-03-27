@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
+import { invoke } from "@tauri-apps/api/core";
 import {
   ResizableHandle,
   ResizablePanel,
@@ -25,14 +26,33 @@ function App() {
     if (activeTab) runQuery(activeTab.sql);
   }, []);
 
+  const [mcpServerReady, setMcpServerReady] = useState<boolean | null>(null);
+  const [mcpControlling, setMcpControlling] = useState(false);
+
   useEffect(() => {
     const unlisten1 = listen("mcp-active", () => setMcpActive(true));
     const unlisten2 = listen("mcp-idle", () => setMcpActive(false));
+    const unlisten3 = listen("mcp-server-ready", () => setMcpServerReady(true));
+    const unlisten4 = listen("mcp-server-error", () => setMcpServerReady(false));
+    const unlisten5 = listen("mcp-server-stopped", () => setMcpServerReady(false));
     return () => {
       unlisten1.then((f) => f());
       unlisten2.then((f) => f());
+      unlisten3.then((f) => f());
+      unlisten4.then((f) => f());
+      unlisten5.then((f) => f());
     };
   }, []);
+
+  async function handleStopMcp() {
+    setMcpControlling(true);
+    try { await invoke("stop_mcp_server"); } finally { setMcpControlling(false); }
+  }
+
+  async function handleRestartMcp() {
+    setMcpControlling(true);
+    try { await invoke("restart_mcp_server"); } finally { setMcpControlling(false); }
+  }
 
   return (
     <div className={`flex h-screen flex-col overflow-hidden bg-background text-foreground${darkMode ? " dark" : ""}`}>
@@ -45,7 +65,35 @@ function App() {
         </div>
       )}
       {/* macOS titlebar drag region */}
-      <div data-tauri-drag-region className="h-7 shrink-0 bg-background" />
+      <div data-tauri-drag-region className="h-7 shrink-0 bg-background flex items-center justify-end px-3 gap-1.5">
+        {mcpServerReady !== null && (
+          <>
+            <div className="pointer-events-none flex items-center gap-1 text-[10px] text-muted-foreground">
+              <span className={`h-1.5 w-1.5 rounded-full ${mcpServerReady ? "bg-green-500" : "bg-red-500"}`} />
+              <span>MCP</span>
+            </div>
+            {mcpServerReady ? (
+              <button
+                className="pointer-events-auto text-[10px] text-muted-foreground opacity-50 hover:opacity-100 transition-opacity disabled:opacity-30"
+                title="MCPサーバーを停止"
+                disabled={mcpControlling}
+                onClick={handleStopMcp}
+              >
+                Stop
+              </button>
+            ) : (
+              <button
+                className="pointer-events-auto text-[10px] text-muted-foreground opacity-50 hover:opacity-100 transition-opacity disabled:opacity-30"
+                title="MCPサーバーを再起動"
+                disabled={mcpControlling}
+                onClick={handleRestartMcp}
+              >
+                Restart
+              </button>
+            )}
+          </>
+        )}
+      </div>
       {/* Main: horizontal split (Explorer | Editor+Results) */}
       <ResizablePanelGroup orientation="horizontal" className="flex-1 overflow-hidden">
         {/* Explorer */}
