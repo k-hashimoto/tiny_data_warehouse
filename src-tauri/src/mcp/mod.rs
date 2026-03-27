@@ -1,3 +1,4 @@
+use std::io::Write;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -5,6 +6,46 @@ use serde_json::{json, Value};
 use tauri::Emitter;
 
 use crate::db::worker::DbWorker;
+
+fn write_log(log_path: &std::path::Path, message: &str) {
+    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(log_path) {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default();
+        // Format: [YYYY-MM-DDTHH:MM:SSZ] message
+        let secs = now.as_secs();
+        let (y, mo, d, h, mi, s) = epoch_to_datetime(secs);
+        let _ = writeln!(f, "[{y:04}-{mo:02}-{d:02}T{h:02}:{mi:02}:{s:02}Z] {message}");
+    }
+}
+
+fn epoch_to_datetime(secs: u64) -> (u64, u64, u64, u64, u64, u64) {
+    let s = secs % 60;
+    let mins = secs / 60;
+    let mi = mins % 60;
+    let hours = mins / 60;
+    let h = hours % 24;
+    let days = hours / 24;
+    // Gregorian calendar calculation
+    let mut y = 1970u64;
+    let mut remaining = days;
+    loop {
+        let leap = (y % 4 == 0 && y % 100 != 0) || y % 400 == 0;
+        let dy = if leap { 366 } else { 365 };
+        if remaining < dy { break; }
+        remaining -= dy;
+        y += 1;
+    }
+    let leap = (y % 4 == 0 && y % 100 != 0) || y % 400 == 0;
+    let month_days: [u64; 12] = [31, if leap { 29 } else { 28 }, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+    let mut mo = 1u64;
+    for &md in &month_days {
+        if remaining < md { break; }
+        remaining -= md;
+        mo += 1;
+    }
+    (y, mo, remaining + 1, h, mi, s)
+}
 
 /// Shared lock: true while an MCP tool call is in progress.
 /// Tauri commands check this and reject requests when true.
@@ -16,6 +57,16 @@ pub async fn run_mcp_server(
     home_dir: String,
     app_handle: tauri::AppHandle,
 ) {
+    // ~/.tdwh/logs/mcp_access.log
+    let log_path = std::path::PathBuf::from(&home_dir)
+        .join(".tdwh")
+        .join("logs")
+        .join("mcp_access.log");
+    if let Some(parent) = log_path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    write_log(&log_path, "MCP server started");
+
     let stdin = tokio::io::stdin();
     let stdout = tokio::io::stdout();
     let mut reader = BufReader::new(stdin);
@@ -36,7 +87,7 @@ pub async fn run_mcp_server(
                     Err(_) => continue,
                 };
                 let response =
-                    handle_request(&req, &db, &active, &home_dir, &app_handle).await;
+                    handle_request(&req, &db, &active, &home_dir, &app_handle, &log_path).await;
                 if let Some(resp) = response {
                     let mut resp_str =
                         serde_json::to_string(&resp).unwrap_or_default();
@@ -56,6 +107,7 @@ async fn handle_request(
     active: &Arc<AtomicBool>,
     home_dir: &str,
     app_handle: &tauri::AppHandle,
+    log_path: &std::path::Path,
 ) -> Option<Value> {
     let id = req.get("id").cloned().unwrap_or(Value::Null);
     let method = req.get("method")?.as_str()?;
@@ -157,28 +209,39 @@ async fn handle_request(
             active.store(true, Ordering::SeqCst);
             let _ = app_handle.emit("mcp-active", ());
 
+            write_log(log_path, &format!("CALL  {} args={}", tool_name, args));
+            let start = std::time::Instant::now();
+
             let result = call_tool(tool_name, &args, db, home_dir).await;
+
+            let elapsed_ms = start.elapsed().as_millis();
 
             // Release lock & notify frontend
             active.store(false, Ordering::SeqCst);
             let _ = app_handle.emit("mcp-idle", ());
 
             match result {
-                Ok(text) => Some(json!({
-                    "jsonrpc": "2.0",
-                    "id": id,
-                    "result": {
-                        "content": [{ "type": "text", "text": text }]
-                    }
-                })),
-                Err(e) => Some(json!({
-                    "jsonrpc": "2.0",
-                    "id": id,
-                    "result": {
-                        "content": [{ "type": "text", "text": format!("Error: {e}") }],
-                        "isError": true
-                    }
-                })),
+                Ok(text) => {
+                    write_log(log_path, &format!("OK    {} | {}ms", tool_name, elapsed_ms));
+                    Some(json!({
+                        "jsonrpc": "2.0",
+                        "id": id,
+                        "result": {
+                            "content": [{ "type": "text", "text": text }]
+                        }
+                    }))
+                }
+                Err(e) => {
+                    write_log(log_path, &format!("ERROR {} | {}ms | {}", tool_name, elapsed_ms, e));
+                    Some(json!({
+                        "jsonrpc": "2.0",
+                        "id": id,
+                        "result": {
+                            "content": [{ "type": "text", "text": format!("Error: {e}") }],
+                            "isError": true
+                        }
+                    }))
+                }
             }
         }
 
