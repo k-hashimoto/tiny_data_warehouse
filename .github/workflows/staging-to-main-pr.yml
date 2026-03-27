@@ -1,0 +1,50 @@
+name: Create PR from staging to main
+
+on:
+  push:
+    branches:
+      - staging
+
+jobs:
+  create-pr:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Create or update PR from staging to main
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # 既存のPRを確認
+          EXISTING_PR=$(gh pr list \
+            --base main \
+            --head staging \
+            --state open \
+            --json number \
+            --jq '.[0].number')
+
+          if [ -n "$EXISTING_PR" ]; then
+            echo "既存のPR #$EXISTING_PR があります。スキップします。"
+          else
+            # stagingとmainの差分コミット数を取得
+            COMMIT_COUNT=$(git rev-list --count origin/main..origin/staging)
+
+            gh pr create \
+              --base main \
+              --head staging \
+              --title "chore: staging → main (${COMMIT_COUNT} commits)" \
+              --body "## staging → main マージPR
+
+          stagingブランチへのマージが溜まったら、このPRを手動でマージしてください。
+
+          ---
+          *このPRはstagingへのpushを検知して自動作成されました。*"
+
+            echo "PRを作成しました。"
+          fi
