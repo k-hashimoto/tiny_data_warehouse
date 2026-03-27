@@ -1,4 +1,19 @@
 #!/bin/bash
+#
+# install.sh — One-line installer for Tiny Data Ware House (macOS)
+#
+# What this script does:
+#   1. Fetches the latest release metadata from the GitHub API.
+#   2. Extracts the download URL of the .dmg asset.
+#   3. Downloads the .dmg to a temporary file.
+#   4. Mounts the disk image using hdiutil.
+#   5. Copies the .app bundle to /Applications (replacing any existing version).
+#   6. Removes the macOS quarantine flag with `xattr -dr com.apple.quarantine`
+#      so the app opens without the "damaged or incomplete" error.
+#   7. Unmounts the disk image and cleans up all temporary files.
+#
+# Requirements: macOS, curl, hdiutil (both are pre-installed on macOS)
+#
 set -euo pipefail
 
 REPO="k-hashimoto/tiny_data_warehouse"
