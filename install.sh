@@ -21,7 +21,7 @@ APP_NAME="Tiny Data Ware House.app"
 INSTALL_DIR="/Applications"
 
 echo "Fetching latest release info..."
-RELEASE_JSON=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest")
+RELEASE_JSON=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases?per_page=1" | sed 's/^\[//;s/\]$//')
 
 VERSION=$(echo "$RELEASE_JSON" | grep '"tag_name"' | sed 's/.*"tag_name": *"\([^"]*\)".*/\1/')
 DMG_URL=$(echo "$RELEASE_JSON" | grep '"browser_download_url"' | grep '\.dmg"' | sed 's/.*"browser_download_url": *"\([^"]*\)".*/\1/')
