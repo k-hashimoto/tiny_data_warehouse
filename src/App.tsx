@@ -4,9 +4,7 @@ import {
   ResizablePanel,
   ResizablePanelGroup,
 } from "@/components/ui/resizable";
-import { TableTree } from "@/components/Explorer/TableTree";
-import { ScriptList } from "@/components/Explorer/ScriptList";
-import { DbtSection } from "@/components/Explorer/DbtSection";
+import { ExplorerPanel } from "@/components/Explorer/ExplorerPanel";
 import { Editor } from "@/components/QueryEditor/Editor";
 import { ResultTable } from "@/components/ResultsPanel/ResultTable";
 import { StatusBar } from "@/components/StatusBar";
@@ -33,19 +31,7 @@ function App() {
       <ResizablePanelGroup orientation="horizontal" className="flex-1 overflow-hidden">
         {/* Explorer */}
         <ResizablePanel defaultSize="240px" minSize="160px" maxSize="45%">
-          <ResizablePanelGroup orientation="vertical" className="h-full">
-            <ResizablePanel defaultSize="50%" minSize="80px">
-              <TableTree />
-            </ResizablePanel>
-            <ResizableHandle withHandle className="z-10" />
-            <ResizablePanel defaultSize="25%" minSize="60px">
-              <DbtSection />
-            </ResizablePanel>
-            <ResizableHandle withHandle className="z-10" />
-            <ResizablePanel defaultSize="25%" minSize="60px">
-              <ScriptList />
-            </ResizablePanel>
-          </ResizablePanelGroup>
+          <ExplorerPanel />
         </ResizablePanel>
 
         <ResizableHandle withHandle className="z-10" />
