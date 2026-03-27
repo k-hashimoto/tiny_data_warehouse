@@ -195,6 +195,17 @@ async fn handle_request(
                             },
                             "required": ["sql", "export_dir", "filename"]
                         }
+                    },
+                    {
+                        "name": "echo",
+                        "description": "MCPサーバーの疎通確認用。受け取ったメッセージをそのまま返す。",
+                        "inputSchema": {
+                            "type": "object",
+                            "properties": {
+                                "message": { "type": "string", "description": "返してほしいメッセージ" }
+                            },
+                            "required": ["message"]
+                        }
                     }
                 ]
             }
@@ -338,6 +349,14 @@ async fn call_tool(
             );
             db.query(copy_sql).await?;
             Ok(out_path.to_str().unwrap_or("").to_string())
+        }
+
+        "echo" => {
+            let message = args
+                .get("message")
+                .and_then(|v| v.as_str())
+                .ok_or("Missing argument: message")?;
+            Ok(message.to_string())
         }
 
         _ => Err(format!("Unknown tool: {name}")),
