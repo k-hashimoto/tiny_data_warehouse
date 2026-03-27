@@ -26,9 +26,15 @@
 
 ## インストール（macOS）
 
-[Releases](../../releases) ページから最新の `.dmg` をダウンロードしてインストールしてください。
+ターミナルで以下のコマンドを実行するだけでインストールできます：
 
-> **注意:** このアプリはコード署名されていないため、開こうとすると「壊れている」というエラーが表示される場合があります。その場合はターミナルで以下のコマンドを実行してください：
+```bash
+curl -fsSL https://raw.githubusercontent.com/k-hashimoto/tiny_data_warehouse/main/install.sh | bash
+```
+
+最新リリースを GitHub から自動でダウンロードし、`/Applications` にインストールした後、macOS の quarantine フラグを自動で除去します。手動での操作は不要です。
+
+> **手動インストール:** [Releases](../../releases) ページから `.dmg` をダウンロードしてインストールすることもできます。このアプリはコード署名されていないため、開こうとすると「壊れている」というエラーが表示される場合があります。その場合はターミナルで以下のコマンドを実行してください：
 >
 > ```bash
 > xattr -dr com.apple.quarantine /Applications/Tiny\ Data\ Ware\ House.app
