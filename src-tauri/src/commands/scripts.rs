@@ -43,6 +43,23 @@ fn collect_scripts(dir: &Path, base: &Path, names: &mut Vec<String>) {
     }
 }
 
+const WELCOME_SQL: &str = "\
+-- Tiny Data Warehouse\n\
+-- GitHub  : https://github.com/k-hashimoto/tiny_data_warehouse\n\
+-- dbt Guide: https://github.com/k-hashimoto/tiny_data_warehouse/blob/main/docs/dbt-integration.md\n\
+\n\
+SELECT 'Hello, DuckDB!' AS greeting, 42 AS answer;\n";
+
+/// Seed default scripts on first launch. Does nothing if the file already exists.
+pub fn seed_default_scripts(app: &tauri::AppHandle) {
+    let Ok(dir) = scripts_dir(app) else { return };
+    let main_dir = dir.join("main");
+    let welcome_path = main_dir.join("welcome.sql");
+    if welcome_path.exists() { return; }
+    if std::fs::create_dir_all(&main_dir).is_err() { return; }
+    let _ = std::fs::write(&welcome_path, WELCOME_SQL);
+}
+
 #[tauri::command]
 pub fn list_scripts(app: tauri::AppHandle) -> Result<Vec<String>, String> {
     let dir = scripts_dir(&app)?;

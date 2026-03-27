@@ -40,7 +40,13 @@ export interface Tab {
   result: QueryResult | null;  // not persisted
 }
 
-const DEFAULT_SQL = "SELECT 'Hello, DuckDB!' AS greeting, 42 AS answer";
+const DEFAULT_SQL = [
+  "-- Tiny Data Warehouse",
+  "-- GitHub  : https://github.com/k-hashimoto/tiny_data_warehouse",
+  "-- dbt Guide: https://github.com/k-hashimoto/tiny_data_warehouse/blob/main/docs/dbt-integration.md",
+  "",
+  "SELECT 'Hello, DuckDB!' AS greeting, 42 AS answer;",
+].join("\n");
 
 function makeTab(id: string, n: number): Tab {
   return { id, title: `Untitled ${n}`, sql: DEFAULT_SQL, linkedScript: null, isDirty: false, result: null };

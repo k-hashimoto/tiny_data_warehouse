@@ -27,6 +27,8 @@ pub fn run() {
             );
             app.manage(db);
 
+            commands::scripts::seed_default_scripts(app.handle());
+
             // File watcher: notify frontend when dbt.db changes
             let (change_tx, mut change_rx) = tokio::sync::mpsc::channel::<()>(8);
 
