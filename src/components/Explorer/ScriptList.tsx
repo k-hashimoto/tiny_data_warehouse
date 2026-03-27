@@ -98,14 +98,18 @@ export function ScriptList() {
 
   async function loadScript(name: string) {
     try {
+      // すでに同じスクリプトが開かれているタブがあればそれをアクティブにする
+      const existingTab = tabs.find((t) => t.linkedScript === name);
+      if (existingTab) {
+        setActiveTab(existingTab.id);
+        return;
+      }
       const content = await invoke<string>("read_script", { name });
-      // 常に新規タブで開く
       addTab();
-      // addTab 後に最新の tabs を取得（store は同期的に更新される）
       const { tabs: updatedTabs } = useAppStore.getState();
       const newTab = updatedTabs[updatedTabs.length - 1];
-      const displayName = name.includes("/") ? name.substring(name.lastIndexOf("/") + 1) : name;
-      renameTab(newTab.id, displayName);
+      const tabTitle = name.includes("/") ? name.substring(name.lastIndexOf("/") + 1) : name;
+      renameTab(newTab.id, tabTitle);
       setTabLinkedScript(newTab.id, name, content);
       setActiveTab(newTab.id);
     } catch (e) {
