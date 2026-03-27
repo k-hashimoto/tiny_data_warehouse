@@ -1,6 +1,7 @@
 mod commands;
 mod db;
 mod file_io;
+mod scheduler;
 
 use db::worker::DbWorker;
 use notify::Watcher;
@@ -106,6 +107,7 @@ pub fn run() {
             commands::csv::reimport_csv,
             commands::csv::export_csv,
             commands::csv::export_query_csv,
+            commands::scripts::execute_saved_query,
             commands::explorer::list_schemas,
             commands::explorer::attach_dbt,
             commands::explorer::detach_dbt,

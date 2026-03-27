@@ -32,6 +32,18 @@ export interface CsvPreviewResult {
   suggested_table_name: string;
 }
 
+export type JobKind =
+  | { type: "saved_query"; name: string }
+  | { type: "csv_import"; path: string }
+  | { type: "workflow"; id: string };
+
+export interface ScheduledJob {
+  id: string;
+  kind: JobKind;
+  cron: string;
+  enabled: boolean;
+}
+
 export interface Tab {
   id: string;
   title: string;
@@ -104,6 +116,9 @@ interface AppState {
   setDbPath: (path: string) => void;
   setIsRunning: (v: boolean) => void;
   addToHistory: (sql: string) => void;
+
+  scheduledJobs: ScheduledJob[];
+  setScheduledJobs: (jobs: ScheduledJob[]) => void;
 
   historyOpen: boolean;
   setHistoryOpen: (v: boolean) => void;
@@ -204,6 +219,9 @@ export const useAppStore = create<AppState>()(
       dbPath: ":memory:",
       isRunning: false,
       queryHistory: [],
+
+      scheduledJobs: [],
+      setScheduledJobs: (scheduledJobs) => set({ scheduledJobs }),
 
       historyOpen: false,
       setHistoryOpen: (historyOpen) => set({ historyOpen }),
