@@ -16,6 +16,9 @@ export function DbtSection() {
   const setDbtTables = useAppStore((s) => s.setDbtTables);
   const setSql = useAppStore((s) => s.setSql);
   const setError = useAppStore((s) => s.setError);
+  const setStatus = useAppStore((s) => s.setStatus);
+  const tabs = useAppStore((s) => s.tabs);
+  const activeTabId = useAppStore((s) => s.activeTabId);
 
   const [expandedSchemas, setExpandedSchemas] = useState<Set<string>>(new Set());
   const [expandedTable, setExpandedTable] = useState<string | null>(null);
@@ -158,7 +161,11 @@ export function DbtSection() {
   function selectTable(schemaName: string, tableName: string) {
     const schema = schemaName.replace(/"/g, '""');
     const table = tableName.replace(/"/g, '""');
-    setSql(`SELECT * FROM dbt."${schema}"."${table}" LIMIT 100`);
+    const newSql = `SELECT * FROM dbt."${schema}"."${table}" LIMIT 100`;
+    const currentSql = tabs.find((t) => t.id === activeTabId)?.sql ?? "";
+    const isEmpty = currentSql.trim() === "";
+    setSql(isEmpty ? newSql : `${currentSql}\n\n${newSql}`);
+    setStatus(isEmpty ? `Inserted: ${newSql}` : `Appended: ${newSql}`);
   }
 
   return (

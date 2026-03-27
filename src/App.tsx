@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import {
   ResizableHandle,
   ResizablePanel,
@@ -10,10 +11,19 @@ import { Editor } from "@/components/QueryEditor/Editor";
 import { ResultTable } from "@/components/ResultsPanel/ResultTable";
 import { StatusBar } from "@/components/StatusBar";
 import { useAppStore } from "@/store/appStore";
+import { useRunQuery } from "@/hooks/useRunQuery";
 
 function App() {
   const historyOpen = useAppStore((s) => s.historyOpen);
   const darkMode = useAppStore((s) => s.darkMode);
+  const tabs = useAppStore((s) => s.tabs);
+  const activeTabId = useAppStore((s) => s.activeTabId);
+  const runQuery = useRunQuery();
+
+  useEffect(() => {
+    const activeTab = tabs.find((t) => t.id === activeTabId);
+    if (activeTab) runQuery(activeTab.sql);
+  }, []);
 
   return (
     <div className={`flex h-screen flex-col overflow-hidden bg-background text-foreground${darkMode ? " dark" : ""}`}>

@@ -117,7 +117,7 @@ export function ResultTable() {
         <span className="text-xs font-semibold text-muted-foreground">RESULTS</span>
         {result.truncated && (
           <span className="text-[10px] text-orange-400 font-medium">
-            ⚠ 表示は1,000行に制限されています
+            ⚠ 表示は1,000行に制限されています。全件取得したい場合はExport CSVを実行してください
           </span>
         )}
         <div className="flex-1" />

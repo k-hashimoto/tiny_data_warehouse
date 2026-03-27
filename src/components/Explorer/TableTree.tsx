@@ -41,6 +41,9 @@ export function TableTree() {
   const setTables = useAppStore((s) => s.setTables);
   const setSql = useAppStore((s) => s.setSql);
   const setError = useAppStore((s) => s.setError);
+  const setStatus = useAppStore((s) => s.setStatus);
+  const tabs = useAppStore((s) => s.tabs);
+  const activeTabId = useAppStore((s) => s.activeTabId);
 
   const [showImport, setShowImport] = useState(false);
   const [dragOver, setDragOver] = useState(false);
@@ -147,7 +150,11 @@ export function TableTree() {
 
   function selectTable(schemaName: string, name: string) {
     const qualified = schemaName === "main" ? `"${name}"` : `"${schemaName}"."${name}"`;
-    setSql(`SELECT * FROM ${qualified} LIMIT 100`);
+    const newSql = `SELECT * FROM ${qualified} LIMIT 100`;
+    const currentSql = tabs.find((t) => t.id === activeTabId)?.sql ?? "";
+    const isEmpty = currentSql.trim() === "";
+    setSql(isEmpty ? newSql : `${currentSql}\n\n${newSql}`);
+    setStatus(isEmpty ? `Inserted: ${newSql}` : `Appended: ${newSql}`);
   }
 
   function handleImported(table: TableInfo) {
