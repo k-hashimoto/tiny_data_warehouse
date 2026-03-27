@@ -1,5 +1,7 @@
 use std::path::{Path, PathBuf};
-use tauri::Manager;
+use tauri::{Manager, State};
+use crate::db::worker::DbWorker;
+use crate::db::types::QueryResult;
 
 fn scripts_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     let home = app.path().home_dir().map_err(|e| e.to_string())?;
@@ -113,4 +115,11 @@ pub fn rename_script(app: tauri::AppHandle, old_name: String, new_name: String) 
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
     std::fs::rename(&old_path, &new_path).map_err(|e| e.to_string())
+}
+
+/// Execute a saved query by name. Used by the scheduler to run saved queries by reference.
+#[tauri::command]
+pub async fn execute_saved_query(app: tauri::AppHandle, name: String, db: State<'_, DbWorker>) -> Result<QueryResult, String> {
+    let sql = read_script(app, name)?;
+    db.query(sql).await
 }
