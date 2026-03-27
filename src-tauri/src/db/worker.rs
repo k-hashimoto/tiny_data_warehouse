@@ -5,6 +5,7 @@ use duckdb::Connection;
 use crate::db::connection::row_value_to_json;
 use crate::db::sql_util;
 use crate::db::types::{QueryResult, TableInfo, SchemaResult, ColumnInfo, CsvImportOptions, CsvPreviewResult, TableMeta, ColumnMeta};
+use crate::file_io;
 
 pub enum WorkerCmd {
     Query {
@@ -444,25 +445,8 @@ fn exec_get_schema(conn: &Connection, schema_name: &str, table_name: &str) -> Re
     get_schema_from(conn, schema_name, table_name)
 }
 
-fn build_read_csv_expr(opts: &CsvImportOptions) -> String {
-    let path = opts.file_path.replace('\'', "''");
-    let delim = match opts.delimiter.as_str() {
-        "tab" => "\\t",
-        "semicolon" => ";",
-        _ => ",",
-    };
-    let encoding = if opts.encoding == "sjis" { "LATIN1" } else { "UTF-8" };
-    format!(
-        "read_csv('{}', header={}, delim='{}', encoding='{}')",
-        path,
-        if opts.has_header { "true" } else { "false" },
-        delim,
-        encoding
-    )
-}
-
 fn exec_preview_csv(conn: &Connection, opts: &CsvImportOptions) -> Result<CsvPreviewResult, String> {
-    let csv_expr = build_read_csv_expr(opts);
+    let csv_expr = file_io::csv::build_read_expr(opts);
     let sql = format!("SELECT * FROM {} LIMIT 10", csv_expr);
     let preview = exec_query(conn, &sql)?;
 
@@ -477,7 +461,7 @@ fn exec_preview_csv(conn: &Connection, opts: &CsvImportOptions) -> Result<CsvPre
 }
 
 fn exec_import_csv(conn: &Connection, opts: &CsvImportOptions) -> Result<TableInfo, String> {
-    let csv_expr = build_read_csv_expr(opts);
+    let csv_expr = file_io::csv::build_read_expr(opts);
     let qualified = sql_util::qualified(&opts.schema_name, &opts.table_name);
 
     let sql = match opts.if_exists.as_str() {

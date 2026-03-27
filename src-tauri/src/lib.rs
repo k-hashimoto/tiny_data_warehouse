@@ -1,5 +1,6 @@
 mod commands;
 mod db;
+mod file_io;
 
 use db::worker::DbWorker;
 use notify::Watcher;

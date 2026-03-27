@@ -7,7 +7,7 @@ import {
   ChevronRightIcon, ChevronDownIcon,
   FolderIcon, FolderOpenIcon, PlusIcon, DatabaseIcon, InfoIcon,
 } from "lucide-react";
-import { CsvImportDialog } from "@/components/CsvImport/CsvImportDialog";
+import { FileImportDialog } from "@/components/FileImport/FileImportDialog";
 import { TableMetaModal } from "@/components/Explorer/TableMetaModal";
 
 interface ColumnInfo {
@@ -499,7 +499,7 @@ export function TableTree() {
       )}
 
       {showImport && (
-        <CsvImportDialog
+        <FileImportDialog
           initialFilePath={pendingFile ?? undefined}
           schemas={allSchemas}
           onImported={handleImported}
