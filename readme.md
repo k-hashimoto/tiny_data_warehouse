@@ -65,6 +65,8 @@ To connect your dbt project, configure its output path to write `dbt.db` into `~
 
 Sample dbt projects are available in the [`dbt_examples/`](./dbt_examples/) directory to help you get started.
 
+**→ [Sidebar Guide](./docs/sidebar.md)** — Tables, dbt, and Saved Queries panel features explained. | [日本語版](./docs/sidebar.ja.md)
+
 **→ [dbt Integration Guide](./docs/dbt-integration.md)** — setup instructions, profiles.yml configuration, and common dbt commands. | [日本語版](./docs/dbt-integration.ja.md)
 
 ---
