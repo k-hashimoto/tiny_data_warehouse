@@ -81,27 +81,6 @@ MCP 設定ファイル（`~/.claude/settings.json`）に以下を追加してく
 }
 ```
 
-### Jupyter Notebook / Python からの利用
-
-Python の HTTP クライアントから直接呼び出すこともできます：
-
-```python
-import requests
-
-def mcp_call(method, params=None):
-    res = requests.post("http://localhost:7741/mcp", json={
-        "jsonrpc": "2.0", "id": 1,
-        "method": method, "params": params or {}
-    })
-    return res.json()
-
-# テーブル一覧を取得
-mcp_call("tools/call", {"name": "list_tables", "arguments": {}})
-
-# SQL クエリを実行
-mcp_call("tools/call", {"name": "run_query", "arguments": {"sql": "SELECT * FROM samples.penguins LIMIT 5"}})
-```
-
 アクセスログは `~/.tdwh/logs/mcp_access.log` に記録されます。
 
 ---

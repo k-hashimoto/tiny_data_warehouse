@@ -81,27 +81,6 @@ Add the following to your Claude Code MCP settings (`~/.claude/settings.json`):
 }
 ```
 
-### Jupyter Notebook / Python
-
-You can also call the MCP server directly from Python using standard HTTP:
-
-```python
-import requests
-
-def mcp_call(method, params=None):
-    res = requests.post("http://localhost:7741/mcp", json={
-        "jsonrpc": "2.0", "id": 1,
-        "method": method, "params": params or {}
-    })
-    return res.json()
-
-# List tables
-mcp_call("tools/call", {"name": "list_tables", "arguments": {}})
-
-# Run a SQL query
-mcp_call("tools/call", {"name": "run_query", "arguments": {"sql": "SELECT * FROM samples.penguins LIMIT 5"}})
-```
-
 Access logs are written to `~/.tdwh/logs/mcp_access.log`.
 
 ---
