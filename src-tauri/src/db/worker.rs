@@ -398,7 +398,7 @@ fn exec_list_tables(conn: &Connection) -> Result<Vec<TableInfo>, String> {
         WHERE schema_name NOT IN ('information_schema', 'pg_catalog', '_tdw') AND database_name != 'dbt' \
         UNION ALL \
         SELECT schema_name, view_name, 'view' AS table_type FROM duckdb_views() \
-        WHERE schema_name NOT IN ('information_schema', 'pg_catalog', '_tdw') AND database_name != 'dbt' \
+        WHERE schema_name NOT IN ('information_schema', 'pg_catalog', '_tdw') AND database_name != 'dbt' AND internal = false \
         ORDER BY schema_name, table_name";
     let mut tables = list_tables_from(conn, list_sql, true)?;
     for t in &mut tables {
