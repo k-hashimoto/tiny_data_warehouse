@@ -14,10 +14,22 @@ tasks:
       - npm install && npm run tauri build -- --bundles app
       - cp -r "src-tauri/target/release/bundle/macos/TinyDataWarehouse.app" /Applications/
 
-  release:
-    desc: Upload built app to GitHub Release (re-release)
+  release:prepare:
+    desc: "Update tauri.conf.json and Cargo.toml to latest GitHub Release tag (run before build)"
     cmds:
-      - ./scripts/release.sh {{.CLI_ARGS}}
+      - ./scripts/release.sh --prepare
+
+  release:upload:
+    desc: Upload built app binary to GitHub Release
+    cmds:
+      - ./scripts/release.sh
+
+  release:
+    desc: "Full release flow: prepare versions → build → upload  (run after staging→main merge)"
+    cmds:
+      - task: release:prepare
+      - task: build
+      - task: release:upload
 
   mcp_log:
     cmds:
