@@ -91,6 +91,37 @@ Access logs are written to `~/.tdwh/logs/mcp_access.log`.
 
 ---
 
+## Integration with Jupyter Notebook
+
+Since the MCP server used for AI integration is a standard REST API server, you can call app methods directly from Jupyter Notebook by sending HTTP requests as shown below.
+
+```python
+import requests, json
+
+BASE = "http://localhost:7741/mcp"
+# If running Jupyter inside a Docker container:
+# BASE = "http://host.docker.internal:7741/mcp"
+
+# Health check
+requests.get(BASE).json()
+
+# Helper function to call MCP tools
+def mcp_call(method, params=None):
+    res = requests.post(BASE, json={
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": method,
+        "params": params or {}
+    })
+    return res.json()
+
+# List available tools
+response = mcp_call("tools/list")
+[print(item["name"], " : ", item["description"], "\n") for item in response["result"]["tools"]]
+```
+
+---
+
 ## Data Storage
 
 All data is stored locally under `~/.tdwh/`:
