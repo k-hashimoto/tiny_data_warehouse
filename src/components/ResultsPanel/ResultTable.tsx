@@ -96,6 +96,7 @@ export function ResultTable() {
           cell: (info) => {
             const v = info.getValue();
             if (v === null || v === undefined) return <span className="text-muted-foreground">NULL</span>;
+            if (typeof v === "object") return JSON.stringify(v);
             return String(v);
           },
         })
