@@ -1,20 +1,20 @@
 #!/bin/bash
 #
-# scripts/release.sh — ビルド済みアプリを GitHub Release にアップロードする
+# scripts/release.sh — バージョン更新・ビルド済みアプリのGitHub Releaseアップロード
 #
 # 使い方:
-#   ./scripts/release.sh [--tag v0.1.0] [--notes "リリースノート"]
+#   ./scripts/release.sh --prepare          # バージョンファイルを更新してビルド準備
+#   ./scripts/release.sh                    # ビルド済みバイナリをアップロード
+#   ./scripts/release.sh [--tag 0.1.1]      # タグを明示指定してアップロード
 #
-# オプションを省略した場合:
-#   --tag    src-tauri/tauri.conf.json のバージョンを使用
-#   --notes  空欄
+# リリースフロー:
+#   1. staging→main PRをマージ → create-release ワークフローが自動でリリース作成
+#   2. git pull
+#   3. ./scripts/release.sh --prepare       # tauri.conf.json / Cargo.toml を更新
+#   4. task build                           # 正しいバージョンでビルド
+#   5. ./scripts/release.sh                 # バイナリをアップロード
 #
-# 動作:
-#   1. src-tauri/target/release/bundle/macos/*.app を zip 化
-#   2. 指定タグの GitHub Release が存在しなければ作成 (pre-release)
-#   3. 同名アセットが既に存在する場合は削除してから再アップロード
-#
-# 必要なもの: gh (GitHub CLI), zip
+# 必要なもの: gh (GitHub CLI), zip, python3
 #
 set -euo pipefail
 
@@ -27,11 +27,11 @@ ARCH_LABEL="${ARCH_LABEL/x86_64/x86_64}"
 
 # --- 引数パース ---
 TAG=""
-NOTES=""
+PREPARE=false
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --tag)   TAG="$2";   shift 2 ;;
-        --notes) NOTES="$2"; shift 2 ;;
+        --tag)     TAG="$2"; shift 2 ;;
+        --prepare) PREPARE=true; shift ;;
         *) echo "Unknown option: $1" >&2; exit 1 ;;
     esac
 done
@@ -46,13 +46,70 @@ if [[ -z "$TAG" ]]; then
     echo "==> 最新リリースタグを使用: ${TAG}"
 fi
 
+# --prepare モード: バージョンファイルを更新してビルド準備
+if [[ "$PREPARE" == "true" ]]; then
+    echo "==> tauri.conf.json と Cargo.toml のバージョンを ${TAG} に更新中..."
+
+    # tauri.conf.json
+    python3 - <<PYEOF
+import json, re
+
+with open("src-tauri/tauri.conf.json", "r") as f:
+    content = f.read()
+
+data = json.loads(content)
+data["version"] = "${TAG}"
+
+with open("src-tauri/tauri.conf.json", "w") as f:
+    json.dump(data, f, indent=2, ensure_ascii=False)
+    f.write("\n")
+PYEOF
+
+    # Cargo.toml (src-tauri)
+    python3 - <<PYEOF
+import re
+
+with open("src-tauri/Cargo.toml", "r") as f:
+    content = f.read()
+
+# [package] セクションのversion行を更新
+content = re.sub(
+    r'^(version\s*=\s*)"[^"]+"',
+    r'\1"${TAG}"',
+    content,
+    count=1,
+    flags=re.MULTILINE
+)
+
+with open("src-tauri/Cargo.toml", "w") as f:
+    f.write(content)
+PYEOF
+
+    echo "    tauri.conf.json: version = ${TAG}"
+    echo "    src-tauri/Cargo.toml: version = ${TAG}"
+    echo ""
+    echo "次のステップ:"
+    echo "  task build"
+    echo "  ./scripts/release.sh"
+    exit 0
+fi
+
+# アップロードモード
 APP_PATH="${BUNDLE_DIR}/${APP_NAME}"
 if [[ ! -d "$APP_PATH" ]]; then
     echo "Error: ${APP_PATH} が見つかりません。先に task build を実行してください。" >&2
     exit 1
 fi
 
-# zip ファイル名: TinyDataWarehouse_0.1.0_aarch64.zip
+# ビルドされたバイナリのバージョンと一致するか確認
+BUILT_VERSION=$(python3 -c "import json; c=json.load(open('src-tauri/tauri.conf.json')); print(c.get('version', ''))")
+if [[ "$BUILT_VERSION" != "$TAG" ]]; then
+    echo "Warning: tauri.conf.json のバージョン (${BUILT_VERSION}) がタグ (${TAG}) と一致しません。" >&2
+    echo "  先に ./scripts/release.sh --prepare && task build を実行してください。" >&2
+    exit 1
+fi
+
+# zip ファイル名: TinyDataWarehouse_0.1.1_aarch64.zip
 ZIP_NAME="TinyDataWarehouse_${TAG}_${ARCH_LABEL}.zip"
 TMP_ZIP="/tmp/${ZIP_NAME}"
 
