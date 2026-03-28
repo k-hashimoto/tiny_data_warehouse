@@ -31,6 +31,32 @@ tasks:
       - task: build
       - task: release:upload
 
+  release:guide:
+    desc: Show release workflow guide
+    silent: true
+    cmds:
+      - |
+        echo ""
+        echo "=================================="
+        echo "  Release Workflow Guide"
+        echo "=================================="
+        echo ""
+        echo "  [Automatic - on staging→main merge]"
+        echo "  1. Merge staging→main PR on GitHub"
+        echo "     → create-release workflow auto-creates a GitHub Release"
+        echo "        with incremented tag (0.1.x+1) and PR titles as notes"
+        echo ""
+        echo "  [Local - build & upload binary]"
+        echo "  2. git pull"
+        echo "  3. task release"
+        echo "     (= release:prepare → build → release:upload)"
+        echo ""
+        echo "  Or step by step:"
+        echo "  3a. task release:prepare   # update tauri.conf.json & Cargo.toml"
+        echo "  3b. task build             # build with correct version"
+        echo "  3c. task release:upload    # upload binary to GitHub Release"
+        echo ""
+
   mcp_log:
     cmds:
       - tail -f  ~/.tdwh/logs/mcp_access.log
