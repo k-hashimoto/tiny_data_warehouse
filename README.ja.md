@@ -21,6 +21,7 @@
 - **テーブルメタデータ** — テーブルやカラムにコメントを付けてドキュメント化
 - **ダークモード** — ライト / ダークテーマの切り替え
 - **リサイズ可能なレイアウト** — パネルをドラッグして作業スペースをカスタマイズ
+- **MCP サーバー** — AI アシスタント連携のためのビルトイン Model Context Protocol サーバー
 
 ---
 
@@ -39,6 +40,54 @@ curl -fsSL https://raw.githubusercontent.com/k-hashimoto/tiny_data_warehouse/mai
 > ```bash
 > xattr -dr com.apple.quarantine /Applications/Tiny\ Data\ Ware\ House.app
 > ```
+
+---
+
+## MCP サーバー
+
+Tiny Data Warehouse には [MCP（Model Context Protocol）](https://modelcontextprotocol.io/) サーバーがビルトインされており、Claude などの AI アシスタントからローカルのデータウェアハウスに直接クエリを実行できます。
+
+### エンドポイント
+
+```
+http://localhost:7741/mcp
+```
+
+アプリ起動時に自動的にサーバーが立ち上がり、`127.0.0.1:7741`（ローカルのみ）でリッスンします。ステータスは下部のステータスバーに表示されます。
+
+### 利用可能なツール
+
+| ツール | 説明 |
+|---|---|
+| `list_tables` | テーブル一覧と行数を取得 |
+| `get_schema` | テーブルのカラム定義を取得 |
+| `run_query` | SQL クエリを実行して結果を返す |
+| `export_query_csv` | クエリ結果を CSV ファイルに書き出し |
+| `reimport_csv` | CSV ファイルをテーブルに再インポート |
+| `echo` | 疎通確認 |
+
+### Claude Code との連携
+
+以下のコマンドを実行すると、Claude Code に MCP サーバーを登録できます：
+
+```bash
+claude mcp add --transport http tiny-data-warehouse http://localhost:7741/mcp
+```
+
+このコマンドを実行すると `~/.claude.json` に自動的に追記されます。または、MCP 設定ファイル（`~/.claude/settings.json`）に手動で追加することもできます：
+
+```json
+{
+  "mcpServers": {
+    "tiny-data-warehouse": {
+      "type": "http",
+      "url": "http://localhost:7741/mcp"
+    }
+  }
+}
+```
+
+アクセスログは `~/.tdwh/logs/mcp_access.log` に記録されます。
 
 ---
 
@@ -68,6 +117,21 @@ dbt プロジェクトを連携させるには、dbt の出力先（`profiles.ym
 **→ [サイドバーガイド](./docs/sidebar.ja.md)** — テーブル・dbt・保存済みクエリパネルの機能説明。 | [English](./docs/sidebar.md)
 
 **→ [dbt 連携ガイド](./docs/dbt-integration.ja.md)** — セットアップ手順、profiles.yml の設定、よく使う dbt コマンド。 | [English](./docs/dbt-integration.md)
+
+---
+
+## DuckDB について
+
+Tiny Data Warehouse は、[DuckDB](https://duckdb.org/) に React の UI を被せたアプリケーションです。そのため、DuckDB がサポートするすべての SQL 構文・関数・拡張機能をそのまま SQL エディタで利用できます。
+
+たとえば以下のような機能が使えます：
+
+- ウィンドウ関数、CTE、`PIVOT` / `UNPIVOT`
+- ファイルの直接読み込み：`read_csv()`、`read_parquet()`、`read_json()`
+- リスト・構造体操作、ラムダ関数
+- DuckDB 拡張機能（`httpfs`、`spatial` など）
+
+> **注意：** UI が対応していない機能については、期待通りに動作しない場合があります。たとえば、表形式以外の結果を返すクエリや、セッション状態を必要とするクエリなどは動作が異なる可能性があります。詳しくは [DuckDB ドキュメント](https://duckdb.org/docs/) を参照してください。
 
 ---
 
@@ -140,6 +204,8 @@ tiny_data_warehouse/
 │       │   ├── scripts.rs      # スクリプト管理
 │       │   ├── metadata.rs     # テーブル / カラムコメント
 │       │   └── config.rs       # エディタ設定
+│       ├── mcp/                # ビルトイン MCP サーバー（Streamable HTTP）
+│       │   └── mod.rs          # JSON-RPC 2.0 ハンドラー（ポート 7741）
 │       └── db/
 │           ├── worker.rs       # 非同期 DuckDB ワーカースレッド
 │           ├── connection.rs   # DuckDB コネクションラッパー
