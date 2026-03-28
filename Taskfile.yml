@@ -19,6 +19,10 @@ tasks:
     cmds:
       - ./scripts/release.sh {{.CLI_ARGS}}
 
+  mcp_log:
+    cmds:
+      - tail -f  ~/.tdwh/logs/mcp_access.log
+
   clean:
     desc: Clean
     cmds:
