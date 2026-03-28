@@ -68,7 +68,13 @@ The server starts automatically when the app launches and listens on `127.0.0.1:
 
 ### Claude Code Integration
 
-Add the following to your Claude Code MCP settings (`~/.claude/settings.json`):
+Run the following command to register the MCP server with Claude Code:
+
+```bash
+claude mcp add --transport http tiny-data-warehouse http://localhost:7741/mcp
+```
+
+This automatically adds the server to `~/.claude.json`. Alternatively, you can add it manually to your MCP settings (`~/.claude/settings.json`):
 
 ```json
 {

@@ -68,7 +68,13 @@ http://localhost:7741/mcp
 
 ### Claude Code との連携
 
-MCP 設定ファイル（`~/.claude/settings.json`）に以下を追加してください：
+以下のコマンドを実行すると、Claude Code に MCP サーバーを登録できます：
+
+```bash
+claude mcp add --transport http tiny-data-warehouse http://localhost:7741/mcp
+```
+
+このコマンドを実行すると `~/.claude.json` に自動的に追記されます。または、MCP 設定ファイル（`~/.claude/settings.json`）に手動で追加することもできます：
 
 ```json
 {
