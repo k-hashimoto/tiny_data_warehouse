@@ -21,6 +21,43 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          # stagingとmainの差分コミット数を取得
+          COMMIT_COUNT=$(git rev-list --count origin/main..origin/staging)
+
+          # origin/main..origin/staging のマージコミットからPR番号を抽出してリスト生成
+          PR_LIST=""
+          PR_NUMBERS=$(git log origin/main..origin/staging --format='%s' \
+            | grep -oP 'Merge pull request #\K\d+' || true)
+
+          if [ -n "$PR_NUMBERS" ]; then
+            while IFS= read -r num; do
+              LINE=$(gh pr view "$num" --json number,title \
+                --template '* #{{.number}} - {{.title}}')
+              PR_LIST="${PR_LIST}${LINE}
+"
+            done <<< "$PR_NUMBERS"
+          fi
+
+          # PR本文を生成
+          if [ -n "$PR_LIST" ]; then
+            BODY="## staging → main マージPR
+
+          stagingブランチへのマージが溜まったら、このPRを手動でマージしてください。
+
+          ## stagingにマージされたPR一覧
+
+          ${PR_LIST}
+          ---
+          *このPRはstagingへのpushを検知して自動作成されました。*"
+          else
+            BODY="## staging → main マージPR
+
+          stagingブランチへのマージが溜まったら、このPRを手動でマージしてください。
+
+          ---
+          *このPRはstagingへのpushを検知して自動作成されました。*"
+          fi
+
           # 既存のPRを確認
           EXISTING_PR=$(gh pr list \
             --base main \
@@ -30,21 +67,16 @@ jobs:
             --jq '.[0].number')
 
           if [ -n "$EXISTING_PR" ]; then
-            echo "既存のPR #$EXISTING_PR があります。スキップします。"
+            # 既存PRの本文を更新
+            gh pr edit "$EXISTING_PR" \
+              --title "chore: staging → main (${COMMIT_COUNT} commits)" \
+              --body "$BODY"
+            echo "既存のPR #$EXISTING_PR を更新しました。"
           else
-            # stagingとmainの差分コミット数を取得
-            COMMIT_COUNT=$(git rev-list --count origin/main..origin/staging)
-
             gh pr create \
               --base main \
               --head staging \
               --title "chore: staging → main (${COMMIT_COUNT} commits)" \
-              --body "## staging → main マージPR
-
-          stagingブランチへのマージが溜まったら、このPRを手動でマージしてください。
-
-          ---
-          *このPRはstagingへのpushを検知して自動作成されました。*"
-
+              --body "$BODY"
             echo "PRを作成しました。"
           fi
