@@ -30,7 +30,9 @@ export function ScriptList() {
 
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
   const [contextMenu, setContextMenu] = useState<ContextMenu | null>(null);
+  const [folderContextMenu, setFolderContextMenu] = useState<{ x: number; y: number; folder: string } | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
+  const [folderDeleteConfirm, setFolderDeleteConfirm] = useState<string | null>(null);
   const [renamingScript, setRenamingScript] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [renameError, setRenameError] = useState("");
@@ -58,6 +60,13 @@ export function ScriptList() {
     window.addEventListener("click", handleClick);
     return () => window.removeEventListener("click", handleClick);
   }, [contextMenu]);
+
+  useEffect(() => {
+    if (!folderContextMenu) return;
+    const close = () => setFolderContextMenu(null);
+    window.addEventListener("click", close);
+    return () => window.removeEventListener("click", close);
+  }, [folderContextMenu]);
 
   useEffect(() => {
     if (renamingScript) {
@@ -147,6 +156,21 @@ export function ScriptList() {
       console.error(e);
     } finally {
       setDeleteConfirm(null);
+    }
+  }
+
+  async function confirmDeleteFolder() {
+    if (!folderDeleteConfirm) return;
+    const items = folderScripts.get(folderDeleteConfirm) ?? [];
+    try {
+      for (const name of items) {
+        await invoke("delete_script", { name });
+      }
+      await refresh();
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setFolderDeleteConfirm(null);
     }
   }
 
@@ -277,8 +301,9 @@ export function ScriptList() {
           return (
             <div key={folder}>
               <div
-                className="flex items-center gap-1 px-1 py-0.5 hover:bg-accent/40 cursor-pointer"
+                className="group flex items-center gap-1 px-1 py-0.5 hover:bg-accent/40 cursor-pointer"
                 onClick={() => toggleFolder(folder)}
+                onContextMenu={(e) => { e.preventDefault(); setFolderContextMenu({ x: e.clientX, y: e.clientY, folder }); }}
               >
                 {isExpanded
                   ? <ChevronDownIcon className="h-3 w-3 text-muted-foreground shrink-0" />
@@ -288,6 +313,13 @@ export function ScriptList() {
                   : <FolderIcon className="h-3 w-3 text-yellow-500 shrink-0" />}
                 <span className="text-xs font-semibold text-muted-foreground">{folder}</span>
                 <span className="ml-auto text-[10px] text-muted-foreground pr-1">{items.length}</span>
+                <button
+                  className="invisible group-hover:visible p-0.5 rounded hover:bg-red-500/20 text-red-400 hover:text-red-500 shrink-0"
+                  title={`フォルダ "${folder}" を削除`}
+                  onClick={(e) => { e.stopPropagation(); setFolderDeleteConfirm(folder); }}
+                >
+                  <Trash2Icon className="h-3 w-3" />
+                </button>
               </div>
               {isExpanded && items.map((name) => (
                 <div key={name} className="ml-3">
@@ -343,6 +375,34 @@ export function ScriptList() {
           destructive
           onConfirm={confirmDelete}
           onCancel={() => setDeleteConfirm(null)}
+        />
+      )}
+
+      {folderContextMenu && (
+        <div
+          className="fixed z-50 bg-popover border rounded shadow-md py-1 min-w-[140px] text-xs"
+          style={{ left: folderContextMenu.x, top: folderContextMenu.y }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <button
+            className="flex items-center gap-2 w-full px-3 py-1.5 hover:bg-accent text-destructive"
+            onClick={() => { setFolderDeleteConfirm(folderContextMenu.folder); setFolderContextMenu(null); }}
+          >
+            <Trash2Icon className="h-3 w-3" />
+            フォルダを削除（全スクリプト）
+          </button>
+        </div>
+      )}
+
+      {folderDeleteConfirm && (
+        <ConfirmDialog
+          title="フォルダを削除"
+          description={`フォルダ "${folderDeleteConfirm}" とその全スクリプト（${folderScripts.get(folderDeleteConfirm)?.length ?? 0}件）を削除します。この操作は元に戻せません。`}
+          confirmLabel="削除"
+          cancelLabel="Cancel"
+          destructive
+          onConfirm={confirmDeleteFolder}
+          onCancel={() => setFolderDeleteConfirm(null)}
         />
       )}
     </div>
