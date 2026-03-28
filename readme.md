@@ -39,6 +39,55 @@ This script downloads the latest release from GitHub, installs it to `/Applicati
 - **Table Metadata** — Add comments to tables and columns for documentation
 - **Dark Mode** — Toggle between light and dark themes
 - **Resizable Layout** — Drag panels to customize your workspace
+- **MCP Server** — Built-in Model Context Protocol server for AI assistant integration
+
+---
+
+## MCP Server
+
+Tiny Data Warehouse includes a built-in [MCP (Model Context Protocol)](https://modelcontextprotocol.io/) server, allowing AI assistants like Claude to query your local data warehouse directly.
+
+### Endpoint
+
+```
+http://localhost:7741/mcp
+```
+
+The server starts automatically when the app launches and listens on `127.0.0.1:7741` (local only). Status is shown in the bottom status bar.
+
+### Available Tools
+
+| Tool | Description |
+|---|---|
+| `list_tables` | List all tables with row counts |
+| `get_schema` | Get column definitions for a table |
+| `run_query` | Execute a SQL query and return results |
+| `export_query_csv` | Export query results to a CSV file |
+| `reimport_csv` | Re-import a CSV file into a table |
+| `echo` | Health check / connectivity test |
+
+### Claude Code Integration
+
+Run the following command to register the MCP server with Claude Code:
+
+```bash
+claude mcp add --transport http tiny-data-warehouse http://localhost:7741/mcp
+```
+
+This automatically adds the server to `~/.claude.json`. Alternatively, you can add it manually to your MCP settings (`~/.claude/settings.json`):
+
+```json
+{
+  "mcpServers": {
+    "tiny-data-warehouse": {
+      "type": "http",
+      "url": "http://localhost:7741/mcp"
+    }
+  }
+}
+```
+
+Access logs are written to `~/.tdwh/logs/mcp_access.log`.
 
 ---
 
@@ -68,6 +117,21 @@ Sample dbt projects are available in the [`dbt_examples/`](./dbt_examples/) dire
 **→ [Sidebar Guide](./docs/sidebar.md)** — Tables, dbt, and Saved Queries panel features explained. | [日本語版](./docs/sidebar.ja.md)
 
 **→ [dbt Integration Guide](./docs/dbt-integration.md)** — setup instructions, profiles.yml configuration, and common dbt commands. | [日本語版](./docs/dbt-integration.ja.md)
+
+---
+
+## About DuckDB
+
+Tiny Data Warehouse is essentially a React UI layered on top of [DuckDB](https://duckdb.org/). This means the full DuckDB SQL dialect is available — all syntax, functions, extensions, and features that DuckDB supports can be used directly in the SQL editor.
+
+This includes, for example:
+
+- Window functions, CTEs, `PIVOT` / `UNPIVOT`
+- Reading files directly: `read_csv()`, `read_parquet()`, `read_json()`
+- List and struct operations, lambda functions
+- DuckDB extensions (e.g. `httpfs`, `spatial`)
+
+> **Note:** Some features may not work as expected depending on UI support. For example, queries that return non-tabular results or require interactive session state may behave differently. When in doubt, refer to the [DuckDB documentation](https://duckdb.org/docs/).
 
 ---
 
@@ -140,6 +204,8 @@ tiny_data_warehouse/
 │       │   ├── scripts.rs      # Script management
 │       │   ├── metadata.rs     # Table/column comments
 │       │   └── config.rs       # Editor configuration
+│       ├── mcp/                # Built-in MCP server (Streamable HTTP)
+│       │   └── mod.rs          # JSON-RPC 2.0 handler (port 7741)
 │       └── db/
 │           ├── worker.rs       # Async DuckDB worker thread
 │           ├── connection.rs   # DuckDB connection wrapper
