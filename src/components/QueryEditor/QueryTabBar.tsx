@@ -77,7 +77,7 @@ export function QueryTabBar({ onCloseRequest }: { onCloseRequest: (tab: Tab) => 
                 e.stopPropagation();
                 onCloseRequest(tab);
               }}
-              title="タブを閉じる"
+              title="タブを閉じる (⌘W)"
             >
               <XIcon className="h-2.5 w-2.5" />
             </button>
@@ -90,7 +90,7 @@ export function QueryTabBar({ onCloseRequest }: { onCloseRequest: (tab: Tab) => 
         className="flex items-center justify-center px-2 text-muted-foreground hover:text-foreground hover:bg-muted/60 shrink-0 disabled:opacity-30 disabled:cursor-not-allowed"
         onClick={addTab}
         disabled={tabs.length >= 10}
-        title={tabs.length >= 10 ? "タブは最大10枚まで" : "新しいタブ"}
+        title={tabs.length >= 10 ? "タブは最大10枚まで" : "新しいタブ (⌘T)"}
       >
         <PlusIcon className="h-3.5 w-3.5" />
       </button>

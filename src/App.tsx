@@ -12,6 +12,7 @@ import { ResultTable } from "@/components/ResultsPanel/ResultTable";
 import { StatusBar } from "@/components/StatusBar";
 import { useAppStore } from "@/store/appStore";
 import { useRunQuery } from "@/hooks/useRunQuery";
+import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 
 function App() {
   const historyOpen = useAppStore((s) => s.historyOpen);
@@ -20,6 +21,7 @@ function App() {
   const activeTabId = useAppStore((s) => s.activeTabId);
   const runQuery = useRunQuery();
   const [mcpActive, setMcpActive] = useState(false);
+  useKeyboardShortcuts();
 
   useEffect(() => {
     const activeTab = tabs.find((t) => t.id === activeTabId);

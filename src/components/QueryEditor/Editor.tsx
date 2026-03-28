@@ -29,6 +29,10 @@ export function Editor() {
   const historyOpen = useAppStore((s) => s.historyOpen);
   const setHistoryOpen = useAppStore((s) => s.setHistoryOpen);
   const setDarkMode = useAppStore((s) => s.setDarkMode);
+  const saveDialogPending = useAppStore((s) => s.saveDialogPending);
+  const setSaveDialogPending = useAppStore((s) => s.setSaveDialogPending);
+  const closeConfirmTab = useAppStore((s) => s.closeConfirmTab);
+  const setCloseConfirmTab = useAppStore((s) => s.setCloseConfirmTab);
 
   const sql = activeTab.sql;
 
@@ -38,8 +42,12 @@ export function Editor() {
   const [saveScriptName, setSaveScriptName] = useState("");
   const [saveError, setSaveError] = useState("");
 
-  // Close tab confirmation
-  const [closeConfirmTab, setCloseConfirmTab] = useState<{ id: string; title: string } | null>(null);
+  useEffect(() => {
+    if (saveDialogPending) {
+      openSaveDialog();
+      setSaveDialogPending(false);
+    }
+  }, [saveDialogPending]);
 
   useEffect(() => {
     invoke<EditorConfig>("get_editor_config")
@@ -185,10 +193,11 @@ export function Editor() {
           variant="ghost"
           className="h-6 text-xs gap-1"
           onClick={openSaveDialog}
-          title="Save as script"
+          title="Save as script (⌘S)"
         >
           <SaveIcon className="h-3 w-3" />
           Save
+          <span className="text-muted-foreground text-[10px] ml-1">⌘S</span>
         </Button>
         <Button size="sm" onClick={handleRunQuery} disabled={isRunning} className="h-6 text-xs gap-1">
           <PlayIcon className="h-3 w-3" />

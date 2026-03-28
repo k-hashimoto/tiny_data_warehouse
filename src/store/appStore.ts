@@ -125,6 +125,12 @@ interface AppState {
 
   darkMode: boolean;
   setDarkMode: (v: boolean) => void;
+
+  saveDialogPending: boolean;
+  setSaveDialogPending: (v: boolean) => void;
+
+  closeConfirmTab: { id: string; title: string } | null;
+  setCloseConfirmTab: (tab: { id: string; title: string } | null) => void;
 }
 
 const initialTabId = nextTabId();
@@ -224,6 +230,12 @@ export const useAppStore = create<AppState>()(
 
       darkMode: false,
       setDarkMode: (darkMode) => set({ darkMode }),
+
+      saveDialogPending: false,
+      setSaveDialogPending: (saveDialogPending) => set({ saveDialogPending }),
+
+      closeConfirmTab: null,
+      setCloseConfirmTab: (closeConfirmTab) => set({ closeConfirmTab }),
 
       setTables: (tables) => set({ tables }),
       setScripts: (scripts) => set({ scripts }),
