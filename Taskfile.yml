@@ -12,12 +12,16 @@ tasks:
     desc: Build App and install to /Applications
     cmds:
       - npm install && npm run tauri build -- --bundles app
-      - cp -r "src-tauri/target/release/bundle/macos/Tiny Data Ware House.app" /Applications/
+      - cp -r "src-tauri/target/release/bundle/macos/TinyDataWarehouse.app" /Applications/
 
   release:
     desc: Upload built app to GitHub Release (re-release)
     cmds:
       - ./scripts/release.sh {{.CLI_ARGS}}
+
+  mcp_log:
+    cmds:
+      - tail -f  ~/.tdwh/logs/mcp_access.log
 
   clean:
     desc: Clean

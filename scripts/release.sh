@@ -20,7 +20,7 @@ set -euo pipefail
 
 REPO="k-hashimoto/tiny_data_warehouse"
 BUNDLE_DIR="src-tauri/target/release/bundle/macos"
-APP_NAME="Tiny Data Ware House.app"
+APP_NAME="TinyDataWarehouse.app"
 ARCH=$(uname -m)  # arm64 or x86_64
 ARCH_LABEL="${ARCH/arm64/aarch64}"
 ARCH_LABEL="${ARCH_LABEL/x86_64/x86_64}"
@@ -48,8 +48,8 @@ if [[ ! -d "$APP_PATH" ]]; then
     exit 1
 fi
 
-# zip ファイル名: Tiny.Data.Ware.House_0.1.0_aarch64.zip
-ZIP_NAME="Tiny.Data.Ware.House_${TAG}_${ARCH_LABEL}.zip"
+# zip ファイル名: TinyDataWarehouse_0.1.0_aarch64.zip
+ZIP_NAME="TinyDataWarehouse_${TAG}_${ARCH_LABEL}.zip"
 TMP_ZIP="/tmp/${ZIP_NAME}"
 
 echo "==> アーカイブを作成中: ${ZIP_NAME}"

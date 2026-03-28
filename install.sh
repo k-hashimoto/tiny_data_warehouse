@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# install.sh — One-line installer for Tiny Data Ware House (macOS)
+# install.sh — One-line installer for TinyDataWarehouse (macOS)
 #
 # What this script does:
 #   1. Fetches the latest release metadata from the GitHub API.
@@ -17,7 +17,7 @@
 set -euo pipefail
 
 REPO="k-hashimoto/tiny_data_warehouse"
-APP_NAME="Tiny Data Ware House.app"
+APP_NAME="TinyDataWarehouse.app"
 INSTALL_DIR="/Applications"
 
 echo "Fetching latest release info..."
@@ -65,4 +65,4 @@ echo "Removing quarantine flag..."
 xattr -dr com.apple.quarantine "${INSTALL_DIR}/${APP_NAME}"
 
 echo ""
-echo "Done! Tiny Data Ware House ${VERSION} has been installed."
+echo "Done! TinyDataWarehouse ${VERSION} has been installed."
