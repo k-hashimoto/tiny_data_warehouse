@@ -366,6 +366,7 @@ fn list_tables_from(conn: &Connection, list_sql: &str, exclude_dbt_db: bool) -> 
     while let Some(row) = rows.next().map_err(|e| e.to_string())? {
         let schema_name: String = row.get(0).map_err(|e| e.to_string())?;
         let name: String = row.get(1).map_err(|e| e.to_string())?;
+        let table_type: String = row.get(2).unwrap_or_else(|_| "table".to_string());
         let row_count: i64 = conn
             .query_row(
                 &format!("SELECT COUNT(*) FROM {}", sql_util::qualified(&schema_name, &name)),
@@ -386,22 +387,30 @@ fn list_tables_from(conn: &Connection, list_sql: &str, exclude_dbt_db: bool) -> 
                 |r| r.get(0),
             )
             .unwrap_or(0);
-        tables.push(TableInfo { name, schema_name, row_count, column_count, csv_source_path: None });
+        tables.push(TableInfo { name, schema_name, row_count, column_count, csv_source_path: None, table_type });
     }
     Ok(tables)
 }
 
 fn exec_list_tables(conn: &Connection) -> Result<Vec<TableInfo>, String> {
-    let list_sql = "SELECT schema_name, table_name FROM duckdb_tables() WHERE schema_name NOT IN ('information_schema', 'pg_catalog', '_tdw') AND database_name != 'dbt' ORDER BY schema_name, table_name";
+    let list_sql = "\
+        SELECT schema_name, table_name, 'table' AS table_type FROM duckdb_tables() \
+        WHERE schema_name NOT IN ('information_schema', 'pg_catalog', '_tdw') AND database_name != 'dbt' \
+        UNION ALL \
+        SELECT schema_name, view_name, 'view' AS table_type FROM duckdb_views() \
+        WHERE schema_name NOT IN ('information_schema', 'pg_catalog', '_tdw') AND database_name != 'dbt' \
+        ORDER BY schema_name, table_name";
     let mut tables = list_tables_from(conn, list_sql, true)?;
     for t in &mut tables {
-        t.csv_source_path = conn
-            .query_row(
-                "SELECT file_path FROM _tdw.csv_sources WHERE schema_name = ? AND table_name = ?",
-                [&t.schema_name, &t.name],
-                |r| r.get(0),
-            )
-            .ok();
+        if t.table_type == "table" {
+            t.csv_source_path = conn
+                .query_row(
+                    "SELECT file_path FROM _tdw.csv_sources WHERE schema_name = ? AND table_name = ?",
+                    [&t.schema_name, &t.name],
+                    |r| r.get(0),
+                )
+                .ok();
+        }
     }
     Ok(tables)
 }
@@ -416,7 +425,7 @@ fn exec_list_dbt_tables(dbt_path: &str) -> Result<Vec<TableInfo>, String> {
         Ok(c) => c,
         Err(_) => return Ok(vec![]),
     };
-    let list_sql = "SELECT schema_name, table_name FROM duckdb_tables() WHERE schema_name NOT IN ('information_schema', 'pg_catalog') ORDER BY schema_name, table_name";
+    let list_sql = "SELECT schema_name, table_name, 'table' AS table_type FROM duckdb_tables() WHERE schema_name NOT IN ('information_schema', 'pg_catalog') ORDER BY schema_name, table_name";
     list_tables_from(&conn, list_sql, false)
 }
 
@@ -513,6 +522,7 @@ fn exec_import_csv(conn: &Connection, opts: &CsvImportOptions) -> Result<TableIn
         row_count,
         column_count,
         csv_source_path: Some(opts.file_path.clone()),
+        table_type: "table".to_string(),
     })
 }
 

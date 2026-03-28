@@ -15,6 +15,7 @@ export interface TableContextMenu {
   schemaName: string;
   tableName: string;
   csvSourcePath: string | null;
+  tableType: string;
 }
 
 export interface SchemaContextMenu {
@@ -45,7 +46,7 @@ export function useTableTree() {
   const [expandedSchemas, setExpandedSchemas] = useState<Set<string>>(new Set(["main"]));
   const [searchQuery] = useState("");
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
-  const [dropConfirm, setDropConfirm] = useState<{ type: "table" | "schema" | "drop-all-tables"; schemaName: string; tableName?: string } | null>(null);
+  const [dropConfirm, setDropConfirm] = useState<{ type: "table" | "schema" | "drop-all-tables"; schemaName: string; tableName?: string; tableType?: string } | null>(null);
   const [showCreateSchema, setShowCreateSchema] = useState(false);
   const [newSchemaName, setNewSchemaName] = useState("");
   const [metaTable, setMetaTable] = useState<{ schemaName: string; tableName: string } | null>(null);
@@ -144,10 +145,10 @@ export function useTableTree() {
     setPendingFile(null);
   }
 
-  function handleTableContextMenu(e: React.MouseEvent, schemaName: string, tableName: string, csvSourcePath: string | null) {
+  function handleTableContextMenu(e: React.MouseEvent, schemaName: string, tableName: string, csvSourcePath: string | null, tableType: string) {
     e.preventDefault();
     e.stopPropagation();
-    setContextMenu({ x: e.clientX, y: e.clientY, type: "table", schemaName, tableName, csvSourcePath });
+    setContextMenu({ x: e.clientX, y: e.clientY, type: "table", schemaName, tableName, csvSourcePath, tableType });
   }
 
   function handleSchemaContextMenu(e: React.MouseEvent, schemaName: string) {
@@ -156,9 +157,9 @@ export function useTableTree() {
     setContextMenu({ x: e.clientX, y: e.clientY, type: "schema", schemaName });
   }
 
-  function confirmDropTable(schemaName: string, tableName: string) {
+  function confirmDropTable(schemaName: string, tableName: string, tableType?: string) {
     setContextMenu(null);
-    setDropConfirm({ type: "table", schemaName, tableName });
+    setDropConfirm({ type: "table", schemaName, tableName, tableType });
   }
 
   async function handleReimport(schemaName: string, tableName: string) {
@@ -184,13 +185,14 @@ export function useTableTree() {
     setDropConfirm({ type: "drop-all-tables", schemaName });
   }
 
-  async function executeDropTable(schemaName: string, tableName: string) {
+  async function executeDropTable(schemaName: string, tableName: string, tableType?: string) {
     setDropConfirm(null);
     try {
       const qualified = schemaName === "main"
         ? `"${tableName.replace(/"/g, '""')}"`
         : `"${schemaName.replace(/"/g, '""')}"."${tableName.replace(/"/g, '""')}"`;
-      await invoke("run_query", { sql: `DROP TABLE IF EXISTS ${qualified}` });
+      const dropKeyword = tableType === "view" ? "VIEW" : "TABLE";
+      await invoke("run_query", { sql: `DROP ${dropKeyword} IF EXISTS ${qualified}` });
       await refresh();
     } catch (e) {
       setError(String(e));
