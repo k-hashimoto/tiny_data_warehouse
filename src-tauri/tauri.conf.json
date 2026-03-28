@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Tiny Data Ware House",
+  "productName": "TinyDataWarehouse",
   "version": "0.1.0",
   "identifier": "com.kimiakihashimoto.tinydhw",
   "build": {
