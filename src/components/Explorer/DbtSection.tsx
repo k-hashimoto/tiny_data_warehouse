@@ -14,11 +14,11 @@ import { TableMetaModal } from "@/components/Explorer/TableMetaModal";
 export function DbtSection() {
   const dbtTables = useAppStore((s) => s.dbtTables);
   const setDbtTables = useAppStore((s) => s.setDbtTables);
+  const addTab = useAppStore((s) => s.addTab);
   const updateTabSql = useAppStore((s) => s.updateTabSql);
   const setError = useAppStore((s) => s.setError);
   const setStatus = useAppStore((s) => s.setStatus);
-  const tabs = useAppStore((s) => s.tabs);
-  const activeTabId = useAppStore((s) => s.activeTabId);
+
 
   const [expandedSchemas, setExpandedSchemas] = useState<Set<string>>(new Set());
   const [expandedTable, setExpandedTable] = useState<string | null>(null);
@@ -27,6 +27,14 @@ export function DbtSection() {
   const [attaching, setAttaching] = useState(false);
   const [dbtRunning, setDbtRunning] = useState(false);
   const [metaTable, setMetaTable] = useState<{ schemaName: string; tableName: string } | null>(null);
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; schemaName: string; tableName: string } | null>(null);
+
+  useEffect(() => {
+    if (!contextMenu) return;
+    const close = () => setContextMenu(null);
+    window.addEventListener("click", close);
+    return () => window.removeEventListener("click", close);
+  }, [contextMenu]);
 
   async function attachDbt() {
     try {
@@ -158,17 +166,37 @@ export function DbtSection() {
     }
   }
 
-  function selectTable(schemaName: string, tableName: string) {
+  function openTableInNewTab(schemaName: string, tableName: string) {
     const schema = schemaName.replace(/"/g, '""');
     const table = tableName.replace(/"/g, '""');
     const newSql = `SELECT * FROM dbt."${schema}"."${table}" LIMIT 100`;
-    const currentSql = tabs.find((t) => t.id === activeTabId)?.sql ?? "";
-    const isEmpty = currentSql.trim() === "";
-    updateTabSql(activeTabId, isEmpty ? newSql : `${currentSql}\n\n${newSql}`);
-    setStatus(isEmpty ? `Inserted: ${newSql}` : `Appended: ${newSql}`);
+    addTab();
+    const newId = useAppStore.getState().activeTabId;
+    updateTabSql(newId, newSql);
+    setStatus(`Opened in new tab: ${newSql}`);
   }
 
   return (
+    <>
+    {contextMenu && (
+      <div
+        className="fixed z-50 bg-background border rounded shadow-lg py-1 min-w-[160px]"
+        style={{ top: contextMenu.y, left: contextMenu.x }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <button className="w-full text-left text-xs px-3 py-1.5 hover:bg-accent" onClick={() => { openTableInNewTab(contextMenu.schemaName, contextMenu.tableName); setContextMenu(null); }}>
+          SELECT * FROM … (新タブ)
+        </button>
+        <div className="border-t my-1" />
+        <button className="w-full text-left text-xs px-3 py-1.5 hover:bg-accent" onClick={() => {
+          const path = `dbt."${contextMenu.schemaName.replace(/"/g, '""')}"."${contextMenu.tableName.replace(/"/g, '""')}"`;
+          navigator.clipboard.writeText(path);
+          setContextMenu(null);
+        }}>
+          Copy table path
+        </button>
+      </div>
+    )}
     <div className="flex flex-col h-full overflow-hidden select-none">
       {/* Header */}
       <div className="flex items-center gap-1 px-2 py-1 border-b shrink-0">
@@ -269,8 +297,9 @@ export function DbtSection() {
                         </button>
                         <button
                           className="flex items-center gap-1 flex-1 text-left text-sm min-w-0 py-1 pr-1"
-                          onDoubleClick={() => selectTable(schemaName, t.name)}
-                          title={`ダブルクリックでSELECT from dbt.${schemaName}.${t.name}`}
+                          onDoubleClick={() => openTableInNewTab(schemaName, t.name)}
+                          onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setContextMenu({ x: e.clientX, y: e.clientY, schemaName, tableName: t.name }); }}
+                          title={`ダブルクリックで新タブにSELECT from dbt.${schemaName}.${t.name}`}
                         >
                           <TableIcon className="h-3 w-3 shrink-0 text-blue-400" />
                           <span className="truncate font-medium">{t.name}</span>
@@ -314,5 +343,6 @@ export function DbtSection() {
         )}
       </div>
     </div>
+    </>
   );
 }

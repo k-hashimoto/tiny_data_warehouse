@@ -16,6 +16,7 @@ export function TableTree() {
     handleImported, handleTableContextMenu, handleSchemaContextMenu,
     confirmDropTable, handleReimport, confirmDropSchema, confirmDropAllTables,
     executeDropTable, executeDropSchema, executeDropAllTables,
+    openTableInNewTab,
     createSchema, executeCreateSchema,
     setNewSchemaName, setShowCreateSchema, setDropConfirm,
     setShowImport, setPendingFile, setMetaTable, setContextMenu,
@@ -67,7 +68,7 @@ export function TableTree() {
                   onContextMenu={(e) => handleSchemaContextMenu(e, schemaName)}
                   onTableContextMenu={(e, tableName, csvSourcePath) => handleTableContextMenu(e, schemaName, tableName, csvSourcePath)}
                   onToggleTable={(tableName) => toggleTableSchema(schemaName, tableName)}
-                  onSelectTable={(tableName) => selectTable(schemaName, tableName)}
+                  onSelectTable={(tableName) => openTableInNewTab(schemaName, tableName)}
                   onInfoClick={(tableName) => setMetaTable({ schemaName, tableName })}
                 />
               );
@@ -92,8 +93,21 @@ export function TableTree() {
         >
           {contextMenu.type === "table" && (
             <>
+              <button className="w-full text-left text-xs px-3 py-1.5 hover:bg-accent" onClick={() => { openTableInNewTab(contextMenu.schemaName, contextMenu.tableName); setContextMenu(null); }}>
+                SELECT * FROM … (新タブ)
+              </button>
               <button className="w-full text-left text-xs px-3 py-1.5 hover:bg-accent" onClick={() => { selectTable(contextMenu.schemaName, contextMenu.tableName); setContextMenu(null); }}>
-                SELECT * FROM …
+                SELECT * FROM … (現在のタブ)
+              </button>
+              <div className="border-t my-1" />
+              <button className="w-full text-left text-xs px-3 py-1.5 hover:bg-accent" onClick={() => {
+                const path = contextMenu.schemaName === "main"
+                  ? `"main"."${contextMenu.tableName.replace(/"/g, '""')}"`
+                  : `"${contextMenu.schemaName.replace(/"/g, '""')}"."${contextMenu.tableName.replace(/"/g, '""')}"`;
+                navigator.clipboard.writeText(path);
+                setContextMenu(null);
+              }}>
+                Copy table path
               </button>
               {contextMenu.csvSourcePath && (
                 <>

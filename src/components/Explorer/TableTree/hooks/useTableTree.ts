@@ -29,6 +29,7 @@ export type ContextMenuState = TableContextMenu | SchemaContextMenu;
 export function useTableTree() {
   const tables = useAppStore((s) => s.tables);
   const setTables = useAppStore((s) => s.setTables);
+  const addTab = useAppStore((s) => s.addTab);
   const updateTabSql = useAppStore((s) => s.updateTabSql);
   const setError = useAppStore((s) => s.setError);
   const setStatus = useAppStore((s) => s.setStatus);
@@ -123,6 +124,15 @@ export function useTableTree() {
     const isEmpty = currentSql.trim() === "";
     updateTabSql(activeTabId, isEmpty ? newSql : `${currentSql}\n\n${newSql}`);
     setStatus(isEmpty ? `Inserted: ${newSql}` : `Appended: ${newSql}`);
+  }
+
+  function openTableInNewTab(schemaName: string, name: string) {
+    const qualified = schemaName === "main" ? `"${name}"` : `"${schemaName}"."${name}"`;
+    const newSql = `SELECT * FROM ${qualified} LIMIT 100`;
+    addTab();
+    const newId = useAppStore.getState().activeTabId;
+    updateTabSql(newId, newSql);
+    setStatus(`Opened in new tab: ${newSql}`);
   }
 
   function handleImported(table: TableInfo) {
@@ -254,6 +264,7 @@ export function useTableTree() {
     handleImported, handleTableContextMenu, handleSchemaContextMenu,
     confirmDropTable, handleReimport, confirmDropSchema, confirmDropAllTables,
     executeDropTable, executeDropSchema, executeDropAllTables,
+    openTableInNewTab,
     createSchema, executeCreateSchema,
     setNewSchemaName, setShowCreateSchema, setDropConfirm,
     setShowImport, setPendingFile, setMetaTable, setContextMenu,
