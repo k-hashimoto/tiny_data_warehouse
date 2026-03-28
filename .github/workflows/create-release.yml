@@ -1,0 +1,66 @@
+name: Create Release on main merge
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  create-release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: read
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # mainへのpushがPRマージによるものか確認
+          COMMIT_MSG=$(git log -1 --format='%s')
+          if ! echo "$COMMIT_MSG" | grep -q "Merge pull request"; then
+            echo "Not a PR merge commit, skipping release creation."
+            exit 0
+          fi
+
+          # 最新リリースタグを取得してパッチバージョンをインクリメント
+          LATEST_TAG=$(gh release list --limit 1 --json tagName --jq '.[0].tagName // "0.1.0"')
+          MAJOR=$(echo "$LATEST_TAG" | cut -d. -f1)
+          MINOR=$(echo "$LATEST_TAG" | cut -d. -f2)
+          PATCH=$(echo "$LATEST_TAG" | cut -d. -f3)
+          NEW_TAG="${MAJOR}.${MINOR}.$((PATCH + 1))"
+          echo "New tag: $NEW_TAG"
+
+          # 最新リリースの公開日時を取得
+          LAST_RELEASE_DATE=$(gh release list --limit 1 --json publishedAt --jq '.[0].publishedAt // "1970-01-01T00:00:00Z"')
+
+          # 最新リリース以降にstagingにマージされたPRタイトルを収集
+          PR_TITLES=$(gh pr list --base staging --state merged \
+            --search "merged:>=${LAST_RELEASE_DATE}" \
+            --limit 50 \
+            --json title \
+            --jq '.[].title' || true)
+
+          # リリースノートを生成
+          if [ -n "$PR_TITLES" ]; then
+            NOTES="## What's Changed"$'\n'
+            while IFS= read -r title; do
+              NOTES="${NOTES}"$'\n'"* ${title}"
+            done <<< "$PR_TITLES"
+          else
+            NOTES="## What's Changed"$'\n\n'"* Maintenance and improvements"
+          fi
+
+          # GitHub Releaseを作成（pre-release）
+          gh release create "$NEW_TAG" \
+            --repo "${{ github.repository }}" \
+            --title "$NEW_TAG" \
+            --notes "$NOTES" \
+            --prerelease
+
+          echo "Release $NEW_TAG created."
