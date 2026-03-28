@@ -57,6 +57,19 @@ fn duckdb_value_to_json(v: Value) -> serde_json::Value {
                 .collect();
             serde_json::Value::Object(obj)
         }
+        Value::Map(map) => {
+            let obj: serde_json::Map<String, serde_json::Value> = map
+                .iter()
+                .map(|(k, val)| {
+                    let key = match k {
+                        Value::Text(s) => s.clone(),
+                        other => format!("{:?}", other),
+                    };
+                    (key, duckdb_value_to_json(val.clone()))
+                })
+                .collect();
+            serde_json::Value::Object(obj)
+        }
         other => serde_json::Value::String(format!("{:?}", other)),
     }
 }
