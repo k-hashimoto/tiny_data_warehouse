@@ -33,8 +33,7 @@ jobs:
             while IFS= read -r num; do
               LINE=$(gh pr view "$num" --json number,title \
                 --template '* #{{.number}} - {{.title}}')
-              PR_LIST="${PR_LIST}${LINE}
-"
+              PR_LIST="${PR_LIST}${LINE}"$'\n'
             done <<< "$PR_NUMBERS"
           fi
 
