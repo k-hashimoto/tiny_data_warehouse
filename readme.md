@@ -39,6 +39,70 @@ This script downloads the latest release from GitHub, installs it to `/Applicati
 - **Table Metadata** — Add comments to tables and columns for documentation
 - **Dark Mode** — Toggle between light and dark themes
 - **Resizable Layout** — Drag panels to customize your workspace
+- **MCP Server** — Built-in Model Context Protocol server for AI assistant integration
+
+---
+
+## MCP Server
+
+Tiny Data Warehouse includes a built-in [MCP (Model Context Protocol)](https://modelcontextprotocol.io/) server, allowing AI assistants like Claude to query your local data warehouse directly.
+
+### Endpoint
+
+```
+http://localhost:7741/mcp
+```
+
+The server starts automatically when the app launches and listens on `127.0.0.1:7741` (local only). Status is shown in the bottom status bar.
+
+### Available Tools
+
+| Tool | Description |
+|---|---|
+| `list_tables` | List all tables with row counts |
+| `get_schema` | Get column definitions for a table |
+| `run_query` | Execute a SQL query and return results |
+| `export_query_csv` | Export query results to a CSV file |
+| `reimport_csv` | Re-import a CSV file into a table |
+| `echo` | Health check / connectivity test |
+
+### Claude Code Integration
+
+Add the following to your Claude Code MCP settings (`~/.claude/settings.json`):
+
+```json
+{
+  "mcpServers": {
+    "tiny-data-warehouse": {
+      "type": "http",
+      "url": "http://localhost:7741/mcp"
+    }
+  }
+}
+```
+
+### Jupyter Notebook / Python
+
+You can also call the MCP server directly from Python using standard HTTP:
+
+```python
+import requests
+
+def mcp_call(method, params=None):
+    res = requests.post("http://localhost:7741/mcp", json={
+        "jsonrpc": "2.0", "id": 1,
+        "method": method, "params": params or {}
+    })
+    return res.json()
+
+# List tables
+mcp_call("tools/call", {"name": "list_tables", "arguments": {}})
+
+# Run a SQL query
+mcp_call("tools/call", {"name": "run_query", "arguments": {"sql": "SELECT * FROM samples.penguins LIMIT 5"}})
+```
+
+Access logs are written to `~/.tdwh/logs/mcp_access.log`.
 
 ---
 
@@ -140,6 +204,8 @@ tiny_data_warehouse/
 │       │   ├── scripts.rs      # Script management
 │       │   ├── metadata.rs     # Table/column comments
 │       │   └── config.rs       # Editor configuration
+│       ├── mcp/                # Built-in MCP server (Streamable HTTP)
+│       │   └── mod.rs          # JSON-RPC 2.0 handler (port 7741)
 │       └── db/
 │           ├── worker.rs       # Async DuckDB worker thread
 │           ├── connection.rs   # DuckDB connection wrapper

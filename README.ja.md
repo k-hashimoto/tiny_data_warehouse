@@ -21,6 +21,7 @@
 - **テーブルメタデータ** — テーブルやカラムにコメントを付けてドキュメント化
 - **ダークモード** — ライト / ダークテーマの切り替え
 - **リサイズ可能なレイアウト** — パネルをドラッグして作業スペースをカスタマイズ
+- **MCP サーバー** — AI アシスタント連携のためのビルトイン Model Context Protocol サーバー
 
 ---
 
@@ -39,6 +40,69 @@ curl -fsSL https://raw.githubusercontent.com/k-hashimoto/tiny_data_warehouse/mai
 > ```bash
 > xattr -dr com.apple.quarantine /Applications/Tiny\ Data\ Ware\ House.app
 > ```
+
+---
+
+## MCP サーバー
+
+Tiny Data Warehouse には [MCP（Model Context Protocol）](https://modelcontextprotocol.io/) サーバーがビルトインされており、Claude などの AI アシスタントからローカルのデータウェアハウスに直接クエリを実行できます。
+
+### エンドポイント
+
+```
+http://localhost:7741/mcp
+```
+
+アプリ起動時に自動的にサーバーが立ち上がり、`127.0.0.1:7741`（ローカルのみ）でリッスンします。ステータスは下部のステータスバーに表示されます。
+
+### 利用可能なツール
+
+| ツール | 説明 |
+|---|---|
+| `list_tables` | テーブル一覧と行数を取得 |
+| `get_schema` | テーブルのカラム定義を取得 |
+| `run_query` | SQL クエリを実行して結果を返す |
+| `export_query_csv` | クエリ結果を CSV ファイルに書き出し |
+| `reimport_csv` | CSV ファイルをテーブルに再インポート |
+| `echo` | 疎通確認 |
+
+### Claude Code との連携
+
+MCP 設定ファイル（`~/.claude/settings.json`）に以下を追加してください：
+
+```json
+{
+  "mcpServers": {
+    "tiny-data-warehouse": {
+      "type": "http",
+      "url": "http://localhost:7741/mcp"
+    }
+  }
+}
+```
+
+### Jupyter Notebook / Python からの利用
+
+Python の HTTP クライアントから直接呼び出すこともできます：
+
+```python
+import requests
+
+def mcp_call(method, params=None):
+    res = requests.post("http://localhost:7741/mcp", json={
+        "jsonrpc": "2.0", "id": 1,
+        "method": method, "params": params or {}
+    })
+    return res.json()
+
+# テーブル一覧を取得
+mcp_call("tools/call", {"name": "list_tables", "arguments": {}})
+
+# SQL クエリを実行
+mcp_call("tools/call", {"name": "run_query", "arguments": {"sql": "SELECT * FROM samples.penguins LIMIT 5"}})
+```
+
+アクセスログは `~/.tdwh/logs/mcp_access.log` に記録されます。
 
 ---
 
@@ -140,6 +204,8 @@ tiny_data_warehouse/
 │       │   ├── scripts.rs      # スクリプト管理
 │       │   ├── metadata.rs     # テーブル / カラムコメント
 │       │   └── config.rs       # エディタ設定
+│       ├── mcp/                # ビルトイン MCP サーバー（Streamable HTTP）
+│       │   └── mod.rs          # JSON-RPC 2.0 ハンドラー（ポート 7741）
 │       └── db/
 │           ├── worker.rs       # 非同期 DuckDB ワーカースレッド
 │           ├── connection.rs   # DuckDB コネクションラッパー
