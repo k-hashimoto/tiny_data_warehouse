@@ -120,6 +120,21 @@ dbt プロジェクトを連携させるには、dbt の出力先（`profiles.ym
 
 ---
 
+## DuckDB について
+
+Tiny Data Warehouse は、[DuckDB](https://duckdb.org/) に React の UI を被せたアプリケーションです。そのため、DuckDB がサポートするすべての SQL 構文・関数・拡張機能をそのまま SQL エディタで利用できます。
+
+たとえば以下のような機能が使えます：
+
+- ウィンドウ関数、CTE、`PIVOT` / `UNPIVOT`
+- ファイルの直接読み込み：`read_csv()`、`read_parquet()`、`read_json()`
+- リスト・構造体操作、ラムダ関数
+- DuckDB 拡張機能（`httpfs`、`spatial` など）
+
+> **注意：** UI が対応していない機能については、期待通りに動作しない場合があります。たとえば、表形式以外の結果を返すクエリや、セッション状態を必要とするクエリなどは動作が異なる可能性があります。詳しくは [DuckDB ドキュメント](https://duckdb.org/docs/) を参照してください。
+
+---
+
 ## セットアップ
 
 ### 必要環境

@@ -120,6 +120,21 @@ Sample dbt projects are available in the [`dbt_examples/`](./dbt_examples/) dire
 
 ---
 
+## About DuckDB
+
+Tiny Data Warehouse is essentially a React UI layered on top of [DuckDB](https://duckdb.org/). This means the full DuckDB SQL dialect is available — all syntax, functions, extensions, and features that DuckDB supports can be used directly in the SQL editor.
+
+This includes, for example:
+
+- Window functions, CTEs, `PIVOT` / `UNPIVOT`
+- Reading files directly: `read_csv()`, `read_parquet()`, `read_json()`
+- List and struct operations, lambda functions
+- DuckDB extensions (e.g. `httpfs`, `spatial`)
+
+> **Note:** Some features may not work as expected depending on UI support. For example, queries that return non-tabular results or require interactive session state may behave differently. When in doubt, refer to the [DuckDB documentation](https://duckdb.org/docs/).
+
+---
+
 ## Getting Started
 
 ### Prerequisites
