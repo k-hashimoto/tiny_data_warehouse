@@ -90,6 +90,35 @@ claude mcp add --transport http tiny-data-warehouse http://localhost:7741/mcp
 アクセスログは `~/.tdwh/logs/mcp_access.log` に記録されます。
 
 ---
+## jupyter notebookとの連携
+AI連携につかうMCPサーバーは、通常のREST APIサーバーなので以下のようにjupyter notebook上でHTTPリクエストを出せばアプリ内のメソッドを呼び出すことができます。
+
+```
+import requests, json
+
+BASE = "http://localhost:7741/mcp"
+# jupyterをdockerコンテナ内で動かす場合
+# BASE = "http://host.docker.internal:7741/mcp"
+
+# ヘルスチェック
+requests.get(BASE).json()
+
+# テーブル一覧を取得
+def mcp_call(method, params=None):
+    res = requests.post(BASE, json={
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": method,
+        "params": params or {}
+    })
+    return res.json()
+
+# ツール一覧
+responce = mcp_call("tools/list")
+[print(item["name"], " : ", item["description"], "\n") for item in responce["result"]["tools"]]
+```
+
+---
 
 ## データの保存場所
 
