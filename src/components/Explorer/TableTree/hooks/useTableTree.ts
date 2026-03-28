@@ -44,7 +44,7 @@ export function useTableTree() {
   const [expandedSchemas, setExpandedSchemas] = useState<Set<string>>(new Set(["main"]));
   const [searchQuery] = useState("");
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
-  const [dropConfirm, setDropConfirm] = useState<{ type: "table" | "schema"; schemaName: string; tableName?: string } | null>(null);
+  const [dropConfirm, setDropConfirm] = useState<{ type: "table" | "schema" | "drop-all-tables"; schemaName: string; tableName?: string } | null>(null);
   const [showCreateSchema, setShowCreateSchema] = useState(false);
   const [newSchemaName, setNewSchemaName] = useState("");
   const [metaTable, setMetaTable] = useState<{ schemaName: string; tableName: string } | null>(null);
@@ -169,6 +169,11 @@ export function useTableTree() {
     setDropConfirm({ type: "schema", schemaName });
   }
 
+  function confirmDropAllTables(schemaName: string) {
+    setContextMenu(null);
+    setDropConfirm({ type: "drop-all-tables", schemaName });
+  }
+
   async function executeDropTable(schemaName: string, tableName: string) {
     setDropConfirm(null);
     try {
@@ -176,6 +181,22 @@ export function useTableTree() {
         ? `"${tableName.replace(/"/g, '""')}"`
         : `"${schemaName.replace(/"/g, '""')}"."${tableName.replace(/"/g, '""')}"`;
       await invoke("run_query", { sql: `DROP TABLE IF EXISTS ${qualified}` });
+      await refresh();
+    } catch (e) {
+      setError(String(e));
+    }
+  }
+
+  async function executeDropAllTables(schemaName: string) {
+    setDropConfirm(null);
+    const schemaTables = tablesBySchema.get(schemaName) ?? [];
+    try {
+      for (const t of schemaTables) {
+        const qualified = schemaName === "main"
+          ? `"${t.name.replace(/"/g, '""')}"`
+          : `"${schemaName.replace(/"/g, '""')}"."${t.name.replace(/"/g, '""')}"`;
+        await invoke("run_query", { sql: `DROP TABLE IF EXISTS ${qualified}` });
+      }
       await refresh();
     } catch (e) {
       setError(String(e));
@@ -231,8 +252,8 @@ export function useTableTree() {
     showImport, dragOver, pendingFile,
     refresh, toggleSchemaFolder, toggleTableSchema, selectTable,
     handleImported, handleTableContextMenu, handleSchemaContextMenu,
-    confirmDropTable, handleReimport, confirmDropSchema,
-    executeDropTable, executeDropSchema,
+    confirmDropTable, handleReimport, confirmDropSchema, confirmDropAllTables,
+    executeDropTable, executeDropSchema, executeDropAllTables,
     createSchema, executeCreateSchema,
     setNewSchemaName, setShowCreateSchema, setDropConfirm,
     setShowImport, setPendingFile, setMetaTable, setContextMenu,
