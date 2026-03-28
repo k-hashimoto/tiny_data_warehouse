@@ -36,10 +36,14 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# バージョン取得
+# バージョン取得（最新のGitHub Releaseタグを使用）
 if [[ -z "$TAG" ]]; then
-    VERSION=$(python3 -c "import json; c=json.load(open('src-tauri/tauri.conf.json')); print(c.get('version', c.get('package',{}).get('version','')))")
-    TAG="${VERSION}"
+    TAG=$(gh release list --repo "${REPO}" --limit 1 --json tagName --jq '.[0].tagName' 2>/dev/null || echo "")
+    if [[ -z "$TAG" ]]; then
+        echo "Error: GitHub Releaseが見つかりません。--tag オプションでタグを指定してください。" >&2
+        exit 1
+    fi
+    echo "==> 最新リリースタグを使用: ${TAG}"
 fi
 
 APP_PATH="${BUNDLE_DIR}/${APP_NAME}"
@@ -57,21 +61,17 @@ echo "==> アーカイブを作成中: ${ZIP_NAME}"
 (cd "${BUNDLE_DIR}" && zip -qry "${TMP_ZIP}" "${APP_NAME}")
 
 echo "==> GitHub Release を確認中 (tag: ${TAG})..."
-if gh release view "${TAG}" --repo "${REPO}" &>/dev/null; then
-    echo "    既存のリリースが見つかりました"
+if ! gh release view "${TAG}" --repo "${REPO}" &>/dev/null; then
+    echo "Error: GitHub Release '${TAG}' が見つかりません。" >&2
+    echo "mainへのマージ後に create-release ワークフローがリリースを自動作成します。" >&2
+    exit 1
+fi
+echo "    リリース '${TAG}' が見つかりました"
 
-    # 同名アセットが存在すれば削除
-    if gh release view "${TAG}" --repo "${REPO}" --json assets --jq '.[].name' 2>/dev/null | grep -qF "${ZIP_NAME}"; then
-        echo "==> 既存アセット '${ZIP_NAME}' を削除中..."
-        gh release delete-asset "${TAG}" "${ZIP_NAME}" --repo "${REPO}" --yes
-    fi
-else
-    echo "==> リリースを新規作成中 (pre-release)..."
-    gh release create "${TAG}" \
-        --repo "${REPO}" \
-        --title "${TAG}" \
-        --notes "${NOTES}" \
-        --prerelease
+# 同名アセットが存在すれば削除
+if gh release view "${TAG}" --repo "${REPO}" --json assets --jq '.[].name' 2>/dev/null | grep -qF "${ZIP_NAME}"; then
+    echo "==> 既存アセット '${ZIP_NAME}' を削除中..."
+    gh release delete-asset "${TAG}" "${ZIP_NAME}" --repo "${REPO}" --yes
 fi
 
 echo "==> アセットをアップロード中..."
