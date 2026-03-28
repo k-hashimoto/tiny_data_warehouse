@@ -14,10 +14,51 @@ tasks:
       - npm install && npm run tauri build -- --bundles app
       - cp -r "src-tauri/target/release/bundle/macos/TinyDataWarehouse.app" /Applications/
 
-  release:
-    desc: Upload built app to GitHub Release (re-release)
+  release:prepare:
+    desc: "Update tauri.conf.json and Cargo.toml to latest GitHub Release tag (run before build)"
     cmds:
-      - ./scripts/release.sh {{.CLI_ARGS}}
+      - ./scripts/release.sh --prepare
+
+  release:upload:
+    desc: Upload built app binary to GitHub Release
+    cmds:
+      - ./scripts/release.sh
+
+  release:
+    desc: "Full release flow: checkout main → pull → prepare versions → build → upload"
+    cmds:
+      - git checkout main
+      - git pull
+      - task: release:prepare
+      - task: build
+      - task: release:upload
+
+  release:guide:
+    desc: Show release workflow guide
+    silent: true
+    cmds:
+      - |
+        echo ""
+        echo "=================================="
+        echo "  Release Workflow Guide"
+        echo "=================================="
+        echo ""
+        echo "  [Automatic - on staging→main merge]"
+        echo "  1. Merge staging→main PR on GitHub"
+        echo "     → create-release workflow auto-creates a GitHub Release"
+        echo "        with incremented tag (0.1.x+1) and PR titles as notes"
+        echo ""
+        echo "  [Local - build & upload binary]"
+        echo "  2. task release"
+        echo "     (= git checkout main → git pull → release:prepare → build → release:upload)"
+        echo ""
+        echo "  Or step by step:"
+        echo "  2a. git checkout main"
+        echo "  2b. git pull"
+        echo "  2c. task release:prepare   # update tauri.conf.json & Cargo.toml"
+        echo "  2d. task build             # build with correct version"
+        echo "  2e. task release:upload    # upload binary to GitHub Release"
+        echo ""
 
   mcp_log:
     cmds:
