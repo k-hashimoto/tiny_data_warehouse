@@ -16,6 +16,7 @@ export interface TableInfo {
   row_count: number;
   column_count: number;
   csv_source_path: string | null;
+  table_type: string; // "table" | "view"
 }
 
 export interface CsvImportOptions {

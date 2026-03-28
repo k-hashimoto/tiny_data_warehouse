@@ -1,4 +1,4 @@
-import { ChevronRightIcon, ChevronDownIcon, TableIcon, InfoIcon } from "lucide-react";
+import { ChevronRightIcon, ChevronDownIcon, TableIcon, EyeIcon, InfoIcon } from "lucide-react";
 import { TableInfo } from "@/store/appStore";
 import { ColumnInfo } from "./hooks/useTableTree";
 
@@ -32,7 +32,9 @@ export function TableItem({ table, isExpanded, columns, onToggleSchema, onDouble
           onDoubleClick={onDoubleClick}
           className="flex-1 flex items-center gap-1 py-1 pr-1 text-left text-sm min-w-0"
         >
-          <TableIcon className="h-3 w-3 shrink-0 text-yellow-500" />
+          {table.table_type === "view"
+            ? <EyeIcon className="h-3 w-3 shrink-0 text-purple-400" />
+            : <TableIcon className="h-3 w-3 shrink-0 text-yellow-500" />}
           <span className="truncate font-medium">{table.name}</span>
           <span className="ml-auto text-xs text-muted-foreground shrink-0 pl-1">{table.row_count}</span>
         </button>

@@ -11,7 +11,7 @@ interface Props {
   schemaCache: Record<string, ColumnInfo[]>;
   onToggle: () => void;
   onContextMenu: (e: React.MouseEvent) => void;
-  onTableContextMenu: (e: React.MouseEvent, tableName: string, csvSourcePath: string | null) => void;
+  onTableContextMenu: (e: React.MouseEvent, tableName: string, csvSourcePath: string | null, tableType: string) => void;
   onToggleTable: (tableName: string) => void;
   onSelectTable: (tableName: string) => void;
   onInfoClick: (tableName: string) => void;
@@ -48,7 +48,7 @@ export function SchemaFolder({
             columns={schemaCache[tableKey]}
             onToggleSchema={() => onToggleTable(t.name)}
             onDoubleClick={() => onSelectTable(t.name)}
-            onContextMenu={(e) => onTableContextMenu(e, t.name, t.csv_source_path)}
+            onContextMenu={(e) => onTableContextMenu(e, t.name, t.csv_source_path, t.table_type)}
             onInfoClick={(e) => { e.stopPropagation(); onInfoClick(t.name); }}
           />
         );

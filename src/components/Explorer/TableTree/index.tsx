@@ -14,8 +14,9 @@ export function TableTree() {
     showImport, dragOver, pendingFile,
     refresh, toggleSchemaFolder, toggleTableSchema, selectTable,
     handleImported, handleTableContextMenu, handleSchemaContextMenu,
-    confirmDropTable, handleReimport, confirmDropSchema,
-    executeDropTable, executeDropSchema,
+    confirmDropTable, handleReimport, confirmDropSchema, confirmDropAllTables,
+    executeDropTable, executeDropSchema, executeDropAllTables,
+    openTableInNewTab,
     createSchema, executeCreateSchema,
     setNewSchemaName, setShowCreateSchema, setDropConfirm,
     setShowImport, setPendingFile, setMetaTable, setContextMenu,
@@ -65,9 +66,9 @@ export function TableTree() {
                   schemaCache={schemaCache}
                   onToggle={() => toggleSchemaFolder(schemaName)}
                   onContextMenu={(e) => handleSchemaContextMenu(e, schemaName)}
-                  onTableContextMenu={(e, tableName, csvSourcePath) => handleTableContextMenu(e, schemaName, tableName, csvSourcePath)}
+                  onTableContextMenu={(e, tableName, csvSourcePath, tableType) => handleTableContextMenu(e, schemaName, tableName, csvSourcePath, tableType)}
                   onToggleTable={(tableName) => toggleTableSchema(schemaName, tableName)}
-                  onSelectTable={(tableName) => selectTable(schemaName, tableName)}
+                  onSelectTable={(tableName) => openTableInNewTab(schemaName, tableName)}
                   onInfoClick={(tableName) => setMetaTable({ schemaName, tableName })}
                 />
               );
@@ -92,8 +93,21 @@ export function TableTree() {
         >
           {contextMenu.type === "table" && (
             <>
+              <button className="w-full text-left text-xs px-3 py-1.5 hover:bg-accent" onClick={() => { openTableInNewTab(contextMenu.schemaName, contextMenu.tableName); setContextMenu(null); }}>
+                SELECT * FROM … (新タブ)
+              </button>
               <button className="w-full text-left text-xs px-3 py-1.5 hover:bg-accent" onClick={() => { selectTable(contextMenu.schemaName, contextMenu.tableName); setContextMenu(null); }}>
-                SELECT * FROM …
+                SELECT * FROM … (現在のタブ)
+              </button>
+              <div className="border-t my-1" />
+              <button className="w-full text-left text-xs px-3 py-1.5 hover:bg-accent" onClick={() => {
+                const path = contextMenu.schemaName === "main"
+                  ? `"main"."${contextMenu.tableName.replace(/"/g, '""')}"`
+                  : `"${contextMenu.schemaName.replace(/"/g, '""')}"."${contextMenu.tableName.replace(/"/g, '""')}"`;
+                navigator.clipboard.writeText(path);
+                setContextMenu(null);
+              }}>
+                Copy table path
               </button>
               {contextMenu.csvSourcePath && (
                 <>
@@ -104,20 +118,29 @@ export function TableTree() {
                 </>
               )}
               <div className="border-t my-1" />
-              <button className="w-full text-left text-xs px-3 py-1.5 hover:bg-accent text-destructive" onClick={() => confirmDropTable(contextMenu.schemaName, contextMenu.tableName)}>
-                Drop Table
+              <button className="w-full text-left text-xs px-3 py-1.5 hover:bg-accent text-destructive" onClick={() => confirmDropTable(contextMenu.schemaName, contextMenu.tableName, contextMenu.tableType)}>
+                {contextMenu.tableType === "view" ? "Drop View" : "Drop Table"}
               </button>
             </>
           )}
           {contextMenu.type === "schema" && (
-            <button
-              className={`w-full text-left text-xs px-3 py-1.5 ${contextMenu.schemaName === "main" ? "opacity-40 cursor-not-allowed" : "hover:bg-accent text-destructive"}`}
-              disabled={contextMenu.schemaName === "main"}
-              onClick={() => contextMenu.schemaName !== "main" && confirmDropSchema(contextMenu.schemaName)}
-            >
-              Drop Schema (CASCADE)
-              {contextMenu.schemaName === "main" && <span className="ml-1 text-muted-foreground">(保護済み)</span>}
-            </button>
+            <>
+              <button
+                className="w-full text-left text-xs px-3 py-1.5 hover:bg-accent text-destructive"
+                onClick={() => confirmDropAllTables(contextMenu.schemaName)}
+              >
+                Drop All Tables
+              </button>
+              <div className="border-t my-1" />
+              <button
+                className={`w-full text-left text-xs px-3 py-1.5 ${contextMenu.schemaName === "main" ? "opacity-40 cursor-not-allowed" : "hover:bg-accent text-destructive"}`}
+                disabled={contextMenu.schemaName === "main"}
+                onClick={() => contextMenu.schemaName !== "main" && confirmDropSchema(contextMenu.schemaName)}
+              >
+                Drop Schema (CASCADE)
+                {contextMenu.schemaName === "main" && <span className="ml-1 text-muted-foreground">(保護済み)</span>}
+              </button>
+            </>
           )}
         </div>
       )}
@@ -135,15 +158,21 @@ export function TableTree() {
 
       {dropConfirm && (
         <ConfirmDialog
-          title={dropConfirm.type === "table" ? "テーブルを削除" : "スキーマを削除"}
+          title={dropConfirm.type === "table" ? (dropConfirm.tableType === "view" ? "ビューを削除" : "テーブルを削除") : dropConfirm.type === "drop-all-tables" ? "全テーブルを削除" : "スキーマを削除"}
           description={
             dropConfirm.type === "table"
               ? `"${dropConfirm.schemaName}"."${dropConfirm.tableName}" を削除します。この操作は元に戻せません。`
+              : dropConfirm.type === "drop-all-tables"
+              ? `スキーマ "${dropConfirm.schemaName}" 内の全テーブルを削除します。スキーマ自体は残ります。この操作は元に戻せません。`
               : `スキーマ "${dropConfirm.schemaName}" とその全テーブルを削除します（CASCADE）。この操作は元に戻せません。`
           }
           confirmLabel="削除"
           destructive
-          onConfirm={() => dropConfirm.type === "table" ? executeDropTable(dropConfirm.schemaName, dropConfirm.tableName!) : executeDropSchema(dropConfirm.schemaName)}
+          onConfirm={() => {
+            if (dropConfirm.type === "table") executeDropTable(dropConfirm.schemaName, dropConfirm.tableName!, dropConfirm.tableType);
+            else if (dropConfirm.type === "drop-all-tables") executeDropAllTables(dropConfirm.schemaName);
+            else executeDropSchema(dropConfirm.schemaName);
+          }}
           onCancel={() => setDropConfirm(null)}
         />
       )}
