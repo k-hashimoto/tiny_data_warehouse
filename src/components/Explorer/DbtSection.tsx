@@ -9,24 +9,26 @@ import {
   FolderIcon, FolderOpenIcon,
   LinkIcon, UnlinkIcon, Trash2Icon, PackageIcon, LoaderIcon, InfoIcon,
 } from "lucide-react";
-import { TableMetaModal } from "@/components/Explorer/TableMetaModal";
 
-export function DbtSection() {
+interface Props {
+  isCollapsed: boolean;
+  onToggleCollapse: () => void;
+}
+
+export function DbtSection({ isCollapsed, onToggleCollapse }: Props) {
   const dbtTables = useAppStore((s) => s.dbtTables);
   const setDbtTables = useAppStore((s) => s.setDbtTables);
   const addTab = useAppStore((s) => s.addTab);
   const updateTabSql = useAppStore((s) => s.updateTabSql);
   const setError = useAppStore((s) => s.setError);
   const setStatus = useAppStore((s) => s.setStatus);
-
-
+  const setMetaPanel = useAppStore((s) => s.setMetaPanel);
   const [expandedSchemas, setExpandedSchemas] = useState<Set<string>>(new Set());
   const [expandedTable, setExpandedTable] = useState<string | null>(null);
   const [schemaCache, setSchemaCache] = useState<Record<string, { name: string; column_type: string }[]>>({});
   const [attached, setAttached] = useState(false);
   const [attaching, setAttaching] = useState(false);
   const [dbtRunning, setDbtRunning] = useState(false);
-  const [metaTable, setMetaTable] = useState<{ schemaName: string; tableName: string } | null>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; schemaName: string; tableName: string } | null>(null);
 
   useEffect(() => {
@@ -98,6 +100,11 @@ export function DbtSection() {
       try { await invoke("detach_dbt"); } catch (_) {}
       await attachDbt();
       await refresh();
+      // Update timestamps for all dbt tables
+      const tables = useAppStore.getState().dbtTables.map((t) => [t.schema_name, t.name] as [string, string]);
+      if (tables.length > 0) {
+        invoke("touch_dbt_timestamps", { tables }).catch(() => {});
+      }
     });
 
     return () => {
@@ -200,10 +207,16 @@ export function DbtSection() {
     <div className="flex flex-col h-full overflow-hidden select-none">
       {/* Header */}
       <div className="flex items-center gap-1 px-2 py-1 border-b shrink-0">
-        <span className="flex items-center gap-1 text-xs font-semibold text-muted-foreground flex-1">
+        <button
+          className="flex items-center gap-1 text-xs font-semibold text-muted-foreground hover:text-foreground flex-1"
+          onClick={onToggleCollapse}
+        >
+          {isCollapsed
+            ? <ChevronRightIcon className="h-3 w-3" />
+            : <ChevronDownIcon className="h-3 w-3" />}
           <PackageIcon className="h-3 w-3" />
           DBT TABLES
-        </span>
+        </button>
         {attached ? (
           <span className="text-[10px] text-green-400 font-medium px-1 rounded bg-green-400/10">attached</span>
         ) : (
@@ -230,21 +243,11 @@ export function DbtSection() {
       </div>
 
       {/* dbt running banner */}
-      {dbtRunning && (
+      {!isCollapsed && dbtRunning && (
         <div className="flex items-center gap-1.5 px-2 py-1 bg-yellow-500/10 border-b border-yellow-500/20 shrink-0">
           <LoaderIcon className="h-3 w-3 text-yellow-400 animate-spin shrink-0" />
           <span className="text-[11px] text-yellow-400 font-medium">dbt 実行中...</span>
         </div>
-      )}
-
-      {/* Table metadata modal */}
-      {metaTable && (
-        <TableMetaModal
-          schemaName={metaTable.schemaName}
-          tableName={metaTable.tableName}
-          isDbt={true}
-          onClose={() => setMetaTable(null)}
-        />
       )}
 
       {/* Content */}
@@ -306,9 +309,9 @@ export function DbtSection() {
                           <span className="ml-auto text-xs text-muted-foreground shrink-0 pl-1">{t.row_count}</span>
                         </button>
                         <button
-                          className="invisible group-hover:visible p-0.5 rounded hover:bg-accent shrink-0 text-muted-foreground hover:text-foreground"
+                          className="p-0.5 rounded hover:bg-accent shrink-0 text-muted-foreground hover:text-foreground"
                           title="メタデータを表示"
-                          onClick={() => setMetaTable({ schemaName, tableName: t.name })}
+                          onClick={() => setMetaPanel({ schemaName, tableName: t.name, isDbt: true })}
                         >
                           <InfoIcon className="h-3 w-3" />
                         </button>

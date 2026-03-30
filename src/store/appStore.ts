@@ -132,6 +132,9 @@ interface AppState {
 
   closeConfirmTab: { id: string; title: string } | null;
   setCloseConfirmTab: (tab: { id: string; title: string } | null) => void;
+
+  metaPanel: { schemaName: string; tableName: string; isDbt: boolean } | null;
+  setMetaPanel: (v: { schemaName: string; tableName: string; isDbt: boolean } | null) => void;
 }
 
 const initialTabId = nextTabId();
@@ -237,6 +240,9 @@ export const useAppStore = create<AppState>()(
 
       closeConfirmTab: null,
       setCloseConfirmTab: (closeConfirmTab) => set({ closeConfirmTab }),
+
+      metaPanel: null,
+      setMetaPanel: (metaPanel) => set({ metaPanel }),
 
       setTables: (tables) => set({ tables }),
       setScripts: (scripts) => set({ scripts }),

@@ -1,16 +1,22 @@
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { InputModal } from "@/components/ui/InputModal";
-import { RefreshCwIcon, UploadIcon, PlusIcon, DatabaseIcon } from "lucide-react";
+import { RefreshCwIcon, UploadIcon, PlusIcon, DatabaseIcon, ChevronDownIcon, ChevronRightIcon } from "lucide-react";
 import { useTableTree } from "./hooks/useTableTree";
 import { SchemaFolder } from "./SchemaFolder";
 import { FileImportDialog } from "@/components/FileImport/FileImportDialog";
-import { TableMetaModal } from "@/components/Explorer/TableMetaModal";
+import { useAppStore } from "@/store/appStore";
 
-export function TableTree() {
+interface Props {
+  isCollapsed: boolean;
+  onToggleCollapse: () => void;
+}
+
+export function TableTree({ isCollapsed, onToggleCollapse }: Props) {
+  const setMetaPanel = useAppStore((s) => s.setMetaPanel);
   const {
     allSchemas, tablesBySchema, expandedSchemas, expandedTable, schemaCache, searchQuery,
-    contextMenu, dropConfirm, showCreateSchema, newSchemaName, metaTable,
+    contextMenu, dropConfirm, showCreateSchema, newSchemaName,
     showImport, dragOver, pendingFile,
     refresh, toggleSchemaFolder, toggleTableSchema, selectTable,
     handleImported, handleTableContextMenu, handleSchemaContextMenu,
@@ -19,7 +25,7 @@ export function TableTree() {
     openTableInNewTab,
     createSchema, executeCreateSchema,
     setNewSchemaName, setShowCreateSchema, setDropConfirm,
-    setShowImport, setPendingFile, setMetaTable, setContextMenu,
+    setShowImport, setPendingFile, setContextMenu,
     handleDragOver, handleDragLeave, handleDrop,
   } = useTableTree();
 
@@ -32,10 +38,16 @@ export function TableTree() {
         onDrop={handleDrop}
       >
         <div className="flex items-center justify-between px-2 py-1 border-b shrink-0">
-          <span className="flex items-center gap-1 text-xs font-semibold text-muted-foreground">
+          <button
+            className="flex items-center gap-1 text-xs font-semibold text-muted-foreground hover:text-foreground"
+            onClick={onToggleCollapse}
+          >
+            {isCollapsed
+              ? <ChevronRightIcon className="h-3 w-3" />
+              : <ChevronDownIcon className="h-3 w-3" />}
             <DatabaseIcon className="h-3 w-3" />
             ADHOC TABLES
-          </span>
+          </button>
           <div className="flex items-center gap-0.5">
             <Button size="icon" variant="ghost" className="h-5 w-5" title="新しいスキーマ" onClick={createSchema}>
               <PlusIcon className="h-3 w-3" />
@@ -69,7 +81,7 @@ export function TableTree() {
                   onTableContextMenu={(e, tableName, csvSourcePath, tableType) => handleTableContextMenu(e, schemaName, tableName, csvSourcePath, tableType)}
                   onToggleTable={(tableName) => toggleTableSchema(schemaName, tableName)}
                   onSelectTable={(tableName) => openTableInNewTab(schemaName, tableName)}
-                  onInfoClick={(tableName) => setMetaTable({ schemaName, tableName })}
+                  onInfoClick={(tableName) => setMetaPanel({ schemaName, tableName, isDbt: false })}
                 />
               );
             })
@@ -186,9 +198,6 @@ export function TableTree() {
         />
       )}
 
-      {metaTable && (
-        <TableMetaModal schemaName={metaTable.schemaName} tableName={metaTable.tableName} isDbt={false} onClose={() => setMetaTable(null)} />
-      )}
     </>
   );
 }

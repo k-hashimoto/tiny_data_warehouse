@@ -39,7 +39,7 @@ export function TableItem({ table, isExpanded, columns, onToggleSchema, onDouble
           <span className="ml-auto text-xs text-muted-foreground shrink-0 pl-1">{table.row_count}</span>
         </button>
         <button
-          className="invisible group-hover:visible p-0.5 rounded hover:bg-accent shrink-0 text-muted-foreground hover:text-foreground"
+          className="p-0.5 rounded hover:bg-accent shrink-0 text-muted-foreground hover:text-foreground"
           title="メタデータを表示"
           onClick={onInfoClick}
         >

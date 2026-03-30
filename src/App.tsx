@@ -26,6 +26,8 @@ function App() {
   useEffect(() => {
     const activeTab = tabs.find((t) => t.id === activeTabId);
     if (activeTab) runQuery(activeTab.sql);
+    // yml → DuckDB COMMENT 同期（起動時）
+    invoke("sync_yml_metadata").catch(() => {});
   }, []);
 
   const [mcpServerReady, setMcpServerReady] = useState<boolean | null>(null);

@@ -62,4 +62,6 @@ pub struct TableMeta {
     pub table_name: String,
     pub comment: Option<String>,
     pub columns: Vec<ColumnMeta>,
+    pub created_at: Option<String>,
+    pub updated_at: Option<String>,
 }
