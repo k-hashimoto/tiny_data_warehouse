@@ -49,8 +49,6 @@ export function useTableTree() {
   const [dropConfirm, setDropConfirm] = useState<{ type: "table" | "schema" | "drop-all-tables"; schemaName: string; tableName?: string; tableType?: string } | null>(null);
   const [showCreateSchema, setShowCreateSchema] = useState(false);
   const [newSchemaName, setNewSchemaName] = useState("");
-  const [metaTable, setMetaTable] = useState<{ schemaName: string; tableName: string } | null>(null);
-
   useEffect(() => { refresh(); }, []);
 
   useEffect(() => {
@@ -260,7 +258,7 @@ export function useTableTree() {
 
   return {
     allSchemas, tablesBySchema, expandedSchemas, expandedTable, schemaCache, searchQuery,
-    contextMenu, dropConfirm, showCreateSchema, newSchemaName, metaTable,
+    contextMenu, dropConfirm, showCreateSchema, newSchemaName,
     showImport, dragOver, pendingFile,
     refresh, toggleSchemaFolder, toggleTableSchema, selectTable,
     handleImported, handleTableContextMenu, handleSchemaContextMenu,
@@ -269,7 +267,7 @@ export function useTableTree() {
     openTableInNewTab,
     createSchema, executeCreateSchema,
     setNewSchemaName, setShowCreateSchema, setDropConfirm,
-    setShowImport, setPendingFile, setMetaTable, setContextMenu,
+    setShowImport, setPendingFile, setContextMenu,
     handleDragOver, handleDragLeave, handleDrop,
   };
 }

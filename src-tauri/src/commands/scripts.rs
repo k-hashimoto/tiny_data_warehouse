@@ -47,25 +47,27 @@ fn collect_scripts(dir: &Path, base: &Path, names: &mut Vec<String>) {
 
 const WELCOME_SQL: &str = "\
 SELECT\n\
-  'Tiny Data Warehouse' as app_name,\n\
+  'Tiny Data Warehouse' as item,\n\
   'https://github.com/k-hashimoto/tiny_data_warehouse' as link\n\
 UNION ALL\n\
 SELECT\n\
-  'Sidebar Guide' as app_name,\n\
+  '|- Sidebar Guide' as item,\n\
   'https://github.com/k-hashimoto/tiny_data_warehouse/blob/main/docs/sidebar.md' as link\n\
 UNION ALL\n\
 SELECT\n\
-  'dbt Guide' as app_name,\n\
-  'https://github.com/k-hashimoto/tiny_data_warehouse/blob/main/docs/dbt-integration.md' as link\n";
+  '|- dbt Guide' as item,\n\
+  'https://github.com/k-hashimoto/tiny_data_warehouse/blob/main/docs/dbt-integration.md' as link\n\
+UNION ALL\n\
+SELECT\n\
+  'An introduction to SQL(DuckDB SQL)' as item,\n\
+  'https://duckdb.org/docs/stable/sql/introduction' as link\n";
 
-/// Seed default scripts on first launch. Does nothing if the file already exists.
+/// Seed default scripts. welcome.sql is always overwritten to stay up to date.
 pub fn seed_default_scripts(app: &tauri::AppHandle) {
     let Ok(dir) = scripts_dir(app) else { return };
     let main_dir = dir.join("main");
-    let welcome_path = main_dir.join("welcome.sql");
-    if welcome_path.exists() { return; }
     if std::fs::create_dir_all(&main_dir).is_err() { return; }
-    let _ = std::fs::write(&welcome_path, WELCOME_SQL);
+    let _ = std::fs::write(main_dir.join("welcome.sql"), WELCOME_SQL);
 }
 
 #[tauri::command]

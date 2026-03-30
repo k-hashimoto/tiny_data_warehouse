@@ -9,6 +9,7 @@ import {
 import { ExplorerPanel } from "@/components/Explorer/ExplorerPanel";
 import { Editor } from "@/components/QueryEditor/Editor";
 import { ResultTable } from "@/components/ResultsPanel/ResultTable";
+import { TableMetaPanel } from "@/components/Explorer/TableMetaPanel";
 import { StatusBar } from "@/components/StatusBar";
 import { useAppStore } from "@/store/appStore";
 import { useRunQuery } from "@/hooks/useRunQuery";
@@ -16,6 +17,7 @@ import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 
 function App() {
   const historyOpen = useAppStore((s) => s.historyOpen);
+  const metaPanel = useAppStore((s) => s.getActiveTab().metaPanel);
   const darkMode = useAppStore((s) => s.darkMode);
   const tabs = useAppStore((s) => s.tabs);
   const activeTabId = useAppStore((s) => s.activeTabId);
@@ -26,6 +28,8 @@ function App() {
   useEffect(() => {
     const activeTab = tabs.find((t) => t.id === activeTabId);
     if (activeTab) runQuery(activeTab.sql);
+    // yml → DuckDB COMMENT 同期（起動時）
+    invoke("sync_yml_metadata").catch(() => {});
   }, []);
 
   const [mcpServerReady, setMcpServerReady] = useState<boolean | null>(null);
@@ -120,7 +124,7 @@ function App() {
 
             <ResizablePanel minSize="100px">
               <div className={`h-full overflow-hidden ${historyOpen ? "hidden" : ""}`}>
-                <ResultTable />
+                {metaPanel ? <TableMetaPanel /> : <ResultTable />}
               </div>
             </ResizablePanel>
           </ResizablePanelGroup>

@@ -111,6 +111,47 @@ from {{ ref('raw_orders') }}
 
 ---
 
+## テーブルメタデータを書き込む
+
+dbt モデルの `config` ブロックで `post_hook` を使うと、テーブルやカラムにコメント（メタデータ）を付与できます。付与したコメントは Tiny Data Warehouse のメタデータパネルに表示されます。
+
+**例 — `models/examples/stg_sales.sql`:**
+
+```sql
+{{
+    config(
+      materialized='table',
+      schema='staging',
+      alias='stg_sales',
+      post_hook=[
+        "COMMENT ON TABLE {{ this }} IS '売上データのサマリーテーブル'",
+        "COMMENT ON COLUMN {{ this }}.sale_id IS '売上レコードの一意識別子'",
+        "COMMENT ON COLUMN {{ this }}.user_id IS 'ユーザーの一意識別子'",
+        "COMMENT ON COLUMN {{ this }}.product_name IS '商品名'",
+        "COMMENT ON COLUMN {{ this }}.revenue IS '売上金額（円）'",
+        "COMMENT ON COLUMN {{ this }}.sale_date IS '売上発生日'"
+      ]
+    )
+}}
+
+SELECT
+    1 AS sale_id, 101 AS user_id, 'ノートPC'  AS product_name, 120000 AS revenue, DATE '2025-01-10' AS sale_date
+
+UNION ALL SELECT 2, 102, 'マウス',       3500, DATE '2025-01-15'
+UNION ALL SELECT 3, 101, 'キーボード',  8000, DATE '2025-02-01'
+UNION ALL SELECT 4, 103, 'モニター',   45000, DATE '2025-02-20'
+UNION ALL SELECT 5, 102, 'USBハブ',    2800, DATE '2025-03-05'
+```
+
+**ポイント:**
+
+- `post_hook` にはリスト形式で複数の SQL 文を記述できます。モデルのビルド完了後に順番に実行されます。
+- `{{ this }}` は dbt の変数で、現在のモデルのテーブル名（`スキーマ.テーブル名`）に展開されます。
+- `COMMENT ON TABLE` でテーブル全体の説明、`COMMENT ON COLUMN` でカラムごとの説明を設定します。
+- `dbt run` 後、Tiny Data Warehouse のエクスプローラーでテーブル名横の ℹ️ ボタンをクリックすると、メタデータパネルにコメントが表示されます。
+
+---
+
 ## よく使う dbt コマンド
 
 | コマンド | 説明 |

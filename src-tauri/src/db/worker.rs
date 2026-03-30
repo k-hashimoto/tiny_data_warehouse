@@ -100,6 +100,17 @@ pub enum WorkerCmd {
         table_name: String,
         tx: tokio::sync::oneshot::Sender<Result<TableInfo, String>>,
     },
+    TouchTableTimestamp {
+        schema_name: String,
+        table_name: String,
+        source: String,
+        is_new: bool,
+        tx: tokio::sync::oneshot::Sender<Result<(), String>>,
+    },
+    TouchDbtTimestamps {
+        tables: Vec<(String, String)>, // (schema_name, table_name)
+        tx: tokio::sync::oneshot::Sender<Result<(), String>>,
+    },
 }
 
 /// DuckDB をシングルスレッドで動かすアクター
@@ -122,7 +133,7 @@ impl DbWorker {
             // Set dbt_db variable so users can ATTACH with: ATTACH getvariable('dbt_db') AS dbt
             let set_var = format!("SET VARIABLE dbt_db = {}", sql_util::literal(&dbt_db_path));
             let _ = conn.execute_batch(&set_var);
-            // Initialize internal metadata schema for CSV source tracking
+            // Initialize internal metadata schema for CSV source tracking and timestamps
             let _ = conn.execute_batch(
                 "CREATE SCHEMA IF NOT EXISTS _tdw;
                  CREATE TABLE IF NOT EXISTS _tdw.csv_sources (
@@ -133,6 +144,14 @@ impl DbWorker {
                      encoding    VARCHAR NOT NULL,
                      has_header  BOOLEAN NOT NULL,
                      PRIMARY KEY (schema_name, table_name)
+                 );
+                 CREATE TABLE IF NOT EXISTS _tdw.table_timestamps (
+                     schema_name VARCHAR NOT NULL,
+                     table_name  VARCHAR NOT NULL,
+                     source      VARCHAR NOT NULL,
+                     created_at  VARCHAR NOT NULL,
+                     updated_at  VARCHAR NOT NULL,
+                     PRIMARY KEY (schema_name, table_name, source)
                  );"
             );
 
@@ -195,6 +214,15 @@ impl DbWorker {
                     }
                     WorkerCmd::ReimportCsv { schema_name, table_name, tx } => {
                         let _ = tx.send(exec_reimport_csv(&conn, &schema_name, &table_name));
+                    }
+                    WorkerCmd::TouchTableTimestamp { schema_name, table_name, source, is_new, tx } => {
+                        let _ = tx.send(exec_touch_table_timestamp(&conn, &schema_name, &table_name, &source, is_new));
+                    }
+                    WorkerCmd::TouchDbtTimestamps { tables, tx } => {
+                        let result = tables.iter().try_for_each(|(schema, table)| {
+                            exec_touch_table_timestamp(&conn, schema, table, "dbt", false)
+                        });
+                        let _ = tx.send(result);
                     }
                 }
             }
@@ -314,6 +342,18 @@ impl DbWorker {
     pub async fn reimport_csv(&self, schema_name: String, table_name: String) -> Result<TableInfo, String> {
         let (resp_tx, resp_rx) = tokio::sync::oneshot::channel();
         self.tx.send(WorkerCmd::ReimportCsv { schema_name, table_name, tx: resp_tx }).map_err(|e| e.to_string())?;
+        resp_rx.await.map_err(|e| e.to_string())?
+    }
+
+    pub async fn touch_table_timestamp(&self, schema_name: String, table_name: String, source: String, is_new: bool) -> Result<(), String> {
+        let (resp_tx, resp_rx) = tokio::sync::oneshot::channel();
+        self.tx.send(WorkerCmd::TouchTableTimestamp { schema_name, table_name, source, is_new, tx: resp_tx }).map_err(|e| e.to_string())?;
+        resp_rx.await.map_err(|e| e.to_string())?
+    }
+
+    pub async fn touch_dbt_timestamps(&self, tables: Vec<(String, String)>) -> Result<(), String> {
+        let (resp_tx, resp_rx) = tokio::sync::oneshot::channel();
+        self.tx.send(WorkerCmd::TouchDbtTimestamps { tables, tx: resp_tx }).map_err(|e| e.to_string())?;
         resp_rx.await.map_err(|e| e.to_string())?
     }
 }
@@ -499,6 +539,9 @@ fn exec_import_csv(conn: &Connection, opts: &CsvImportOptions) -> Result<TableIn
             if opts.has_header { "true" } else { "false" },
         );
         let _ = conn.execute(&upsert, []);
+        // CSV import時にタイムスタンプを記録（replace = 新規扱いで created_at をリセット）
+        let is_new = opts.if_exists != "replace";
+        let _ = exec_touch_table_timestamp(conn, &opts.schema_name, &opts.table_name, "adhoc", is_new);
     }
 
     let row_count: i64 = conn
@@ -583,6 +626,29 @@ fn exec_drop_dbt_schema(dbt_path: &str, schema_name: &str) -> Result<(), String>
     Ok(())
 }
 
+fn exec_touch_table_timestamp(conn: &Connection, schema_name: &str, table_name: &str, source: &str, is_new: bool) -> Result<(), String> {
+    let now_sql = "strftime(now(), '%Y-%m-%dT%H:%M:%SZ')";
+    let sql = if is_new {
+        format!(
+            "INSERT INTO _tdw.table_timestamps (schema_name, table_name, source, created_at, updated_at) \
+             VALUES ({}, {}, {}, {}, {}) \
+             ON CONFLICT (schema_name, table_name, source) DO UPDATE SET updated_at = {}",
+            sql_util::literal(schema_name), sql_util::literal(table_name), sql_util::literal(source),
+            now_sql, now_sql, now_sql
+        )
+    } else {
+        format!(
+            "INSERT INTO _tdw.table_timestamps (schema_name, table_name, source, created_at, updated_at) \
+             VALUES ({}, {}, {}, {}, {}) \
+             ON CONFLICT (schema_name, table_name, source) DO UPDATE SET updated_at = {}",
+            sql_util::literal(schema_name), sql_util::literal(table_name), sql_util::literal(source),
+            now_sql, now_sql, now_sql
+        )
+    };
+    conn.execute(&sql, []).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 fn exec_get_table_meta(conn: &Connection, schema_name: &str, table_name: &str) -> Result<TableMeta, String> {
     let comment: Option<String> = conn.query_row(
         &format!(
@@ -608,7 +674,18 @@ fn exec_get_table_meta(conn: &Connection, schema_name: &str, table_name: &str) -
         let col_comment: Option<String> = row.get::<_, String>(2).ok();
         columns.push(ColumnMeta { name, data_type, comment: col_comment });
     }
-    Ok(TableMeta { schema_name: schema_name.to_string(), table_name: table_name.to_string(), comment, columns })
+
+    // タイムスタンプを取得
+    let ts_sql = format!(
+        "SELECT created_at, updated_at FROM _tdw.table_timestamps WHERE schema_name = {} AND table_name = {} AND source = 'adhoc'",
+        sql_util::literal(schema_name),
+        sql_util::literal(table_name)
+    );
+    let (created_at, updated_at) = conn.query_row(&ts_sql, [], |r| {
+        Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+    }).map(|(c, u)| (Some(c), Some(u))).unwrap_or((None, None));
+
+    Ok(TableMeta { schema_name: schema_name.to_string(), table_name: table_name.to_string(), comment, columns, created_at, updated_at })
 }
 
 fn exec_get_dbt_table_meta(dbt_path: &str, schema_name: &str, table_name: &str) -> Result<TableMeta, String> {
@@ -641,7 +718,7 @@ fn exec_get_dbt_table_meta(dbt_path: &str, schema_name: &str, table_name: &str) 
         let col_comment: Option<String> = row.get::<_, String>(2).ok();
         columns.push(ColumnMeta { name, data_type, comment: col_comment });
     }
-    Ok(TableMeta { schema_name: schema_name.to_string(), table_name: table_name.to_string(), comment, columns })
+    Ok(TableMeta { schema_name: schema_name.to_string(), table_name: table_name.to_string(), comment, columns, created_at: None, updated_at: None })
 }
 
 fn exec_set_table_comment(conn: &Connection, schema_name: &str, table_name: &str, comment: &str) -> Result<(), String> {

@@ -15,10 +15,12 @@ export function useExecuteQuery() {
   const setIsRunning = useAppStore((s) => s.setIsRunning);
   const addToHistory = useAppStore((s) => s.addToHistory);
   const isRunning = useAppStore((s) => s.isRunning);
+  const setMetaPanel = useAppStore((s) => s.setMetaPanel);
 
   return async function executeQuery(sql: string, options?: ExecuteOptions): Promise<QueryResult | null> {
     if (isRunning) return null;
     const { updateTabResult = true, tabId = activeTabId } = options ?? {};
+    if (updateTabResult) setMetaPanel(null);
     setError("");
     setIsRunning(true);
     setStatus("Running...");
