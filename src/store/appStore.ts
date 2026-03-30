@@ -53,24 +53,29 @@ export interface Tab {
   linkedScript: string | null;
   isDirty: boolean;
   result: QueryResult | null;  // not persisted
+  metaPanel: { schemaName: string; tableName: string; isDbt: boolean } | null;
 }
 
 const DEFAULT_SQL = [
   "SELECT",
-  "  'Tiny Data Warehouse' as app_name,",
+  "  'Tiny Data Warehouse' as item,",
   "  'https://github.com/k-hashimoto/tiny_data_warehouse' as link",
   "UNION ALL",
   "SELECT",
-  "  'Sidebar Guide' as app_name,",
+  "  '|- Sidebar Guide' as item,",
   "  'https://github.com/k-hashimoto/tiny_data_warehouse/blob/main/docs/sidebar.md' as link",
   "UNION ALL",
   "SELECT",
-  "  'dbt Guide' as app_name,",
+  "  '|- dbt Guide' as item,",
   "  'https://github.com/k-hashimoto/tiny_data_warehouse/blob/main/docs/dbt-integration.md' as link",
+  "UNION ALL",
+  "SELECT",
+  "  'An introduction to SQL(DuckDB SQL)' as item,",
+  "  'https://duckdb.org/docs/stable/sql/introduction' as link",
 ].join("\n");
 
 function makeTab(id: string, n: number): Tab {
-  return { id, title: `Untitled ${n}`, sql: DEFAULT_SQL, linkedScript: null, isDirty: false, result: null };
+  return { id, title: `Untitled ${n}`, sql: DEFAULT_SQL, linkedScript: null, isDirty: false, result: null, metaPanel: null };
 }
 
 let tabCounter = 1;
@@ -133,7 +138,6 @@ interface AppState {
   closeConfirmTab: { id: string; title: string } | null;
   setCloseConfirmTab: (tab: { id: string; title: string } | null) => void;
 
-  metaPanel: { schemaName: string; tableName: string; isDbt: boolean } | null;
   setMetaPanel: (v: { schemaName: string; tableName: string; isDbt: boolean } | null) => void;
 }
 
@@ -241,8 +245,10 @@ export const useAppStore = create<AppState>()(
       closeConfirmTab: null,
       setCloseConfirmTab: (closeConfirmTab) => set({ closeConfirmTab }),
 
-      metaPanel: null,
-      setMetaPanel: (metaPanel) => set({ metaPanel }),
+      setMetaPanel: (metaPanel) => {
+        const { activeTabId } = get();
+        set((s) => ({ tabs: s.tabs.map((t) => t.id === activeTabId ? { ...t, metaPanel } : t) }));
+      },
 
       setTables: (tables) => set({ tables }),
       setScripts: (scripts) => set({ scripts }),

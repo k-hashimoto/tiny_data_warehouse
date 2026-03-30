@@ -1,37 +1,19 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { usePanelRef } from "react-resizable-panels";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { TableTree } from "@/components/Explorer/TableTree";
 import { DbtSection } from "@/components/Explorer/DbtSection";
 import { ScriptList } from "@/components/Explorer/ScriptList";
-import { TableMetaPanel } from "@/components/Explorer/TableMetaPanel";
-import { useAppStore } from "@/store/appStore";
-
 const HEADER_PX = 28;
 
 export function ExplorerPanel() {
-  const metaPanel = useAppStore((s) => s.metaPanel);
-
   const tableTreeRef = usePanelRef();
   const dbtRef = usePanelRef();
   const scriptRef = usePanelRef();
-  const metaRef = usePanelRef();
 
   const [tableTreeCollapsed, setTableTreeCollapsed] = useState(false);
   const [dbtCollapsed, setDbtCollapsed] = useState(false);
   const [scriptCollapsed, setScriptCollapsed] = useState(false);
-
-  // metaPanel が設定されたときにメタパネルを展開、解除されたら折りたたむ
-  useEffect(() => {
-    if (metaPanel) {
-      const panel = metaRef.current;
-      if (panel?.isCollapsed()) {
-        panel.resize("38%");
-      }
-    } else {
-      metaRef.current?.collapse();
-    }
-  }, [metaPanel, metaRef]);
 
   function togglePanel(
     panelRef: ReturnType<typeof usePanelRef>,
@@ -102,17 +84,6 @@ export function ExplorerPanel() {
         />
       </ResizablePanel>
 
-      <ResizableHandle withHandle className={`z-10 ${!metaPanel ? "hidden" : ""}`} />
-
-      <ResizablePanel
-        panelRef={metaRef}
-        collapsible
-        collapsedSize="0px"
-        minSize="120px"
-        defaultSize="0px"
-      >
-        {metaPanel && <TableMetaPanel />}
-      </ResizablePanel>
     </ResizablePanelGroup>
   );
 }

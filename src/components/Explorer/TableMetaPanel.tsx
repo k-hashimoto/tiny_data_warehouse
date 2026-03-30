@@ -20,7 +20,7 @@ interface TableMeta {
 }
 
 export function TableMetaPanel() {
-  const metaPanel = useAppStore((s) => s.metaPanel);
+  const metaPanel = useAppStore((s) => s.getActiveTab().metaPanel);
   const setMetaPanel = useAppStore((s) => s.setMetaPanel);
 
   const [meta, setMeta] = useState<TableMeta | null>(null);
