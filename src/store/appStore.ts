@@ -58,16 +58,20 @@ export interface Tab {
 
 const DEFAULT_SQL = [
   "SELECT",
-  "  'Tiny Data Warehouse' as app_name,",
+  "  'Tiny Data Warehouse' as item,",
   "  'https://github.com/k-hashimoto/tiny_data_warehouse' as link",
   "UNION ALL",
   "SELECT",
-  "  'Sidebar Guide' as app_name,",
+  "  '|- Sidebar Guide' as item,",
   "  'https://github.com/k-hashimoto/tiny_data_warehouse/blob/main/docs/sidebar.md' as link",
   "UNION ALL",
   "SELECT",
-  "  'dbt Guide' as app_name,",
+  "  '|- dbt Guide' as item,",
   "  'https://github.com/k-hashimoto/tiny_data_warehouse/blob/main/docs/dbt-integration.md' as link",
+  "UNION ALL",
+  "SELECT",
+  "  'An introduction to SQL(DuckDB SQL)' as item,",
+  "  'https://duckdb.org/docs/stable/sql/introduction' as link",
 ].join("\n");
 
 function makeTab(id: string, n: number): Tab {

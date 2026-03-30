@@ -47,16 +47,20 @@ fn collect_scripts(dir: &Path, base: &Path, names: &mut Vec<String>) {
 
 const WELCOME_SQL: &str = "\
 SELECT\n\
-  'Tiny Data Warehouse' as app_name,\n\
+  'Tiny Data Warehouse' as item,\n\
   'https://github.com/k-hashimoto/tiny_data_warehouse' as link\n\
 UNION ALL\n\
 SELECT\n\
-  'Sidebar Guide' as app_name,\n\
+  '|- Sidebar Guide' as item,\n\
   'https://github.com/k-hashimoto/tiny_data_warehouse/blob/main/docs/sidebar.md' as link\n\
 UNION ALL\n\
 SELECT\n\
-  'dbt Guide' as app_name,\n\
-  'https://github.com/k-hashimoto/tiny_data_warehouse/blob/main/docs/dbt-integration.md' as link\n";
+  '|- dbt Guide' as item,\n\
+  'https://github.com/k-hashimoto/tiny_data_warehouse/blob/main/docs/dbt-integration.md' as link\n\
+UNION ALL\n\
+SELECT\n\
+  'An introduction to SQL(DuckDB SQL)' as item,\n\
+  'https://duckdb.org/docs/stable/sql/introduction' as link\n";
 
 /// Seed default scripts on first launch. Does nothing if the file already exists.
 pub fn seed_default_scripts(app: &tauri::AppHandle) {
