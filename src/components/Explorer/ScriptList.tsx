@@ -16,7 +16,12 @@ interface ContextMenu {
   name: string;
 }
 
-export function ScriptList() {
+interface Props {
+  isCollapsed: boolean;
+  onToggleCollapse: () => void;
+}
+
+export function ScriptList({ isCollapsed, onToggleCollapse }: Props) {
   const scripts = useAppStore((s) => s.scripts);
   const setScripts = useAppStore((s) => s.setScripts);
   const sql = useAppStore((s) => s.sql);
@@ -276,10 +281,16 @@ export function ScriptList() {
     <div className="flex flex-col h-full overflow-hidden select-none">
       {/* Header */}
       <div className="flex items-center gap-1 px-2 py-1 border-b shrink-0">
-        <span className="flex items-center gap-1 text-xs font-semibold text-muted-foreground flex-1">
+        <button
+          className="flex items-center gap-1 text-xs font-semibold text-muted-foreground hover:text-foreground flex-1"
+          onClick={onToggleCollapse}
+        >
+          {isCollapsed
+            ? <ChevronRightIcon className="h-3 w-3" />
+            : <ChevronDownIcon className="h-3 w-3" />}
           <ScrollIcon className="h-3 w-3" />
           SAVED QUERIES
-        </span>
+        </button>
         <Button size="icon" variant="ghost" className="h-5 w-5" title="Refresh" onClick={refresh}>
           <RefreshCwIcon className="h-3 w-3" />
         </Button>

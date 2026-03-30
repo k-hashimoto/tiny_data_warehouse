@@ -2,6 +2,7 @@ mod commands;
 mod config;
 mod db;
 mod file_io;
+mod metadata_yml;
 mod mcp;
 mod scheduler;
 
@@ -172,6 +173,9 @@ pub fn run() {
             commands::metadata::get_dbt_table_meta,
             commands::metadata::set_table_comment,
             commands::metadata::set_column_comment,
+            commands::metadata::save_table_meta,
+            commands::metadata::sync_yml_metadata,
+            commands::metadata::touch_dbt_timestamps,
             get_mcp_server_status,
             stop_mcp_server,
             restart_mcp_server,
