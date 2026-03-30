@@ -37,47 +37,34 @@ SELECT * FROM (VALUES
   ('prod_c', 'Starter',       5000, 0.30)
 ) t(product_id, product_name, mrr, lead_share);
 
--- 日別・チャネル別広告費（決定論的な疑似乱数で変動を表現）
+-- 日別・チャネル別広告費（過去90日）
+-- generate_series(0,89) で日付を整数オフセットから計算
 CREATE TABLE ad_spend AS
 SELECT
-  d::DATE AS spend_date,
+  (current_date - (89 - i)::INT)    AS spend_date,
   channel_id,
   channel_name,
   CASE channel_id
-    WHEN 'google_ads'   THEN 45000 + (EXTRACT(DOY FROM d::DATE)::BIGINT * 317 + 1) % 20000
-    WHEN 'facebook_ads' THEN 28000 + (EXTRACT(DOY FROM d::DATE)::BIGINT * 251 + 2) % 15000
-    WHEN 'linkedin_ads' THEN 38000 + (EXTRACT(DOY FROM d::DATE)::BIGINT * 197 + 3) % 18000
-    WHEN 'display_ads'  THEN  9000 + (EXTRACT(DOY FROM d::DATE)::BIGINT * 173 + 4) %  5000
+    WHEN 'google_ads'   THEN 45000 + (i::BIGINT * 317 + 1) % 20000
+    WHEN 'facebook_ads' THEN 28000 + (i::BIGINT * 251 + 2) % 15000
+    WHEN 'linkedin_ads' THEN 38000 + (i::BIGINT * 197 + 3) % 18000
+    WHEN 'display_ads'  THEN  9000 + (i::BIGINT * 173 + 4) %  5000
   END AS spend_amount
-FROM generate_series(
-  (current_date - INTERVAL '89 days'),
-  current_date,
-  INTERVAL '1 day'
-) gs(d)
+FROM generate_series(0, 89) gs(i)
 CROSS JOIN ad_channels;
 
 -- リードテーブル（日別90〜110件、チャネル・プロダクト分布は比率どおり）
 CREATE TABLE leads AS
-WITH date_series AS (
+WITH daily_counts AS (
   SELECT
-    d::DATE                                   AS lead_date,
-    (ROW_NUMBER() OVER () - 1)::BIGINT        AS day_offset
-  FROM generate_series(
-    (current_date - INTERVAL '89 days'),
-    current_date,
-    INTERVAL '1 day'
-  ) gs(d)
-),
-daily_counts AS (
-  SELECT
-    lead_date,
-    day_offset,
-    (95 + (day_offset * 7 + 3) % 16)::INT AS daily_count
-  FROM date_series
+    i                                            AS day_offset,
+    (current_date - (89 - i)::INT)               AS lead_date,
+    (95 + (i * 7 + 3) % 16)::INT                 AS daily_count
+  FROM generate_series(0, 89) gs(i)
 ),
 -- 各日のリード行を展開
 lead_rows AS (
-  SELECT lead_date, n
+  SELECT lead_date, day_offset, n
   FROM daily_counts,
   generate_series(1, daily_count) gs(n)
 ),
