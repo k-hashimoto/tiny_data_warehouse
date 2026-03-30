@@ -1,4 +1,4 @@
--- 売上サマリー（サンプルデータ）
+-- example of create table with metadata 
 {{
     config(
       materialized='table',

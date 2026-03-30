@@ -111,6 +111,47 @@ from {{ ref('raw_orders') }}
 
 ---
 
+## Writing table metadata
+
+You can attach comments (metadata) to tables and columns using `post_hook` in the `config` block of a dbt model. Comments added this way are displayed in the Tiny Data Warehouse metadata panel.
+
+**Example — `models/examples/stg_sales.sql`:**
+
+```sql
+{{
+    config(
+      materialized='table',
+      schema='staging',
+      alias='stg_sales',
+      post_hook=[
+        "COMMENT ON TABLE {{ this }} IS 'Sales summary table'",
+        "COMMENT ON COLUMN {{ this }}.sale_id IS 'Unique identifier for each sale record'",
+        "COMMENT ON COLUMN {{ this }}.user_id IS 'Unique identifier for the user'",
+        "COMMENT ON COLUMN {{ this }}.product_name IS 'Name of the product'",
+        "COMMENT ON COLUMN {{ this }}.revenue IS 'Sale amount (JPY)'",
+        "COMMENT ON COLUMN {{ this }}.sale_date IS 'Date the sale occurred'"
+      ]
+    )
+}}
+
+SELECT
+    1 AS sale_id, 101 AS user_id, 'Laptop'   AS product_name, 120000 AS revenue, DATE '2025-01-10' AS sale_date
+
+UNION ALL SELECT 2, 102, 'Mouse',      3500, DATE '2025-01-15'
+UNION ALL SELECT 3, 101, 'Keyboard',   8000, DATE '2025-02-01'
+UNION ALL SELECT 4, 103, 'Monitor',   45000, DATE '2025-02-20'
+UNION ALL SELECT 5, 102, 'USB Hub',    2800, DATE '2025-03-05'
+```
+
+**Key points:**
+
+- `post_hook` accepts a list of SQL statements that run in order after the model finishes building.
+- `{{ this }}` is a dbt variable that expands to the fully-qualified table name (`schema.table`).
+- `COMMENT ON TABLE` sets a description for the whole table; `COMMENT ON COLUMN` sets a per-column description.
+- After `dbt run`, click the ℹ️ button next to a table name in the Tiny Data Warehouse Explorer to view the metadata panel with these comments.
+
+---
+
 ## Common dbt commands
 
 | Command | Description |
