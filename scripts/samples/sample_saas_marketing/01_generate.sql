@@ -1,7 +1,7 @@
 -- SaaS マーケティング ダミーデータ生成
 -- ファネル: デジタル広告 → リード → 契約
 --
--- 生成されるテーブル:
+-- 生成されるテーブル (スキーマ: sample_saas_marketing):
 --   ad_channels  広告チャネルマスタ（4媒体）
 --   products     プロダクトマスタ（3製品）
 --   ad_spend     日別・チャネル別広告費（過去90日）
@@ -10,16 +10,18 @@
 --
 -- 集計例は 02_summary.sql を参照
 
-DROP TABLE IF EXISTS contracts;
-DROP TABLE IF EXISTS leads;
-DROP TABLE IF EXISTS ad_spend;
-DROP TABLE IF EXISTS products;
-DROP TABLE IF EXISTS ad_channels;
+CREATE SCHEMA IF NOT EXISTS sample_saas_marketing;
+
+DROP TABLE IF EXISTS sample_saas_marketing.contracts;
+DROP TABLE IF EXISTS sample_saas_marketing.leads;
+DROP TABLE IF EXISTS sample_saas_marketing.ad_spend;
+DROP TABLE IF EXISTS sample_saas_marketing.products;
+DROP TABLE IF EXISTS sample_saas_marketing.ad_channels;
 
 -- 広告チャネルマスタ
 --   lead_share   : リード獲得比率
 --   contract_rate: リード→契約の転換率
-CREATE TABLE ad_channels AS
+CREATE TABLE sample_saas_marketing.ad_channels AS
 SELECT * FROM (VALUES
   ('google_ads',   'Google Ads',   0.40, 0.12),
   ('facebook_ads', 'Facebook Ads', 0.30, 0.08),
@@ -30,7 +32,7 @@ SELECT * FROM (VALUES
 -- プロダクトマスタ
 --   mrr       : 月次収益（円）
 --   lead_share: リード中の比率
-CREATE TABLE products AS
+CREATE TABLE sample_saas_marketing.products AS
 SELECT * FROM (VALUES
   ('prod_a', 'Enterprise',   50000, 0.20),
   ('prod_b', 'Professional', 20000, 0.50),
@@ -38,8 +40,7 @@ SELECT * FROM (VALUES
 ) t(product_id, product_name, mrr, lead_share);
 
 -- 日別・チャネル別広告費（過去90日）
--- generate_series(0,89) で日付を整数オフセットから計算
-CREATE TABLE ad_spend AS
+CREATE TABLE sample_saas_marketing.ad_spend AS
 SELECT
   (current_date - (89 - i)::INT)    AS spend_date,
   channel_id,
@@ -51,20 +52,18 @@ SELECT
     WHEN 'display_ads'  THEN  9000 + (i::BIGINT * 173 + 4) %  5000
   END AS spend_amount
 FROM generate_series(0, 89) gs(i)
-CROSS JOIN ad_channels;
+CROSS JOIN sample_saas_marketing.ad_channels;
 
 -- リードテーブル（日別90〜110件、チャネル・プロダクト分布は比率どおり）
-CREATE TABLE leads AS
+CREATE TABLE sample_saas_marketing.leads AS
 WITH daily_counts AS (
   SELECT
-    i                                            AS day_offset,
-    (current_date - (89 - i)::INT)               AS lead_date,
-    (95 + (i * 7 + 3) % 16)::INT                 AS daily_count
+    (current_date - (89 - i)::INT)   AS lead_date,
+    (95 + (i * 7 + 3) % 16)::INT     AS daily_count
   FROM generate_series(0, 89) gs(i)
 ),
--- 各日のリード行を展開
 lead_rows AS (
-  SELECT lead_date, day_offset, n
+  SELECT lead_date, n
   FROM daily_counts,
   generate_series(1, daily_count) gs(n)
 ),
@@ -108,26 +107,23 @@ SELECT
 FROM numbered;
 
 -- 契約テーブル（チャネル別転換率で絞り込み、リード獲得から1〜14日後に契約）
-CREATE TABLE contracts AS
+CREATE TABLE sample_saas_marketing.contracts AS
 SELECT
   ROW_NUMBER() OVER (ORDER BY l.lead_id) AS contract_id,
   l.lead_id,
   l.user_id,
   l.channel_id,
   l.product_id,
-  -- 契約日: リード日 + 1〜14日のラグ
   l.lead_date + (1 + (l.lead_id * 11 + 5) % 14)::INT AS contract_date,
   p.mrr
-FROM leads l
-JOIN products     p  ON l.product_id = p.product_id
-JOIN ad_channels  ac ON l.channel_id = ac.channel_id
+FROM sample_saas_marketing.leads        l
+JOIN sample_saas_marketing.products     p  ON l.product_id = p.product_id
+JOIN sample_saas_marketing.ad_channels  ac ON l.channel_id = ac.channel_id
 WHERE
-  -- チャネル別転換率を決定論的に適用
   (l.lead_id * 13 + 7) % 100 < (ac.contract_rate * 100)::INT
-  -- 契約日が今日以前のものだけ（将来の予測は含めない）
   AND l.lead_date + (1 + (l.lead_id * 11 + 5) % 14)::INT <= current_date;
 
 -- 生成確認
-SELECT 'leads'     AS tbl, COUNT(*) AS cnt, MIN(lead_date)     AS min_date, MAX(lead_date)     AS max_date FROM leads
+SELECT 'leads'     AS tbl, COUNT(*) AS cnt, MIN(lead_date)     AS min_date, MAX(lead_date)     AS max_date FROM sample_saas_marketing.leads
 UNION ALL
-SELECT 'contracts',        COUNT(*),        MIN(contract_date), MAX(contract_date)              FROM contracts;
+SELECT 'contracts',        COUNT(*),        MIN(contract_date), MAX(contract_date)              FROM sample_saas_marketing.contracts;

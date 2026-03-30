@@ -62,8 +62,8 @@ SELECT\n\
   'An introduction to SQL(DuckDB SQL)' as item,\n\
   'https://duckdb.org/docs/stable/sql/introduction' as link\n";
 
-const SAAS_GENERATE_SQL: &str = include_str!("../../../scripts/samples/saas_marketing/01_generate.sql");
-const SAAS_SUMMARY_SQL: &str  = include_str!("../../../scripts/samples/saas_marketing/02_summary.sql");
+const SAAS_GENERATE_SQL: &str = include_str!("../../../scripts/samples/sample_saas_marketing/01_generate.sql");
+const SAAS_SUMMARY_SQL: &str  = include_str!("../../../scripts/samples/sample_saas_marketing/02_summary.sql");
 
 /// Seed default scripts. welcome.sql is always overwritten to stay up to date.
 /// Sample scripts are created only if they don't already exist.
@@ -76,7 +76,7 @@ pub fn seed_default_scripts(app: &tauri::AppHandle) {
     let _ = std::fs::write(main_dir.join("welcome.sql"), WELCOME_SQL);
 
     // samples/saas_marketing — create only if absent
-    let saas_dir = dir.join("samples").join("saas_marketing");
+    let saas_dir = dir.join("samples").join("sample_saas_marketing");
     if std::fs::create_dir_all(&saas_dir).is_ok() {
         let gen_path = saas_dir.join("01_generate.sql");
         if !gen_path.exists() {
