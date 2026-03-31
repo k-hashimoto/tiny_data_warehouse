@@ -42,7 +42,7 @@ SELECT * FROM (VALUES
 -- 日別・チャネル別広告費（過去90日）
 CREATE TABLE sample_saas_marketing.ad_spend AS
 SELECT
-  (current_date - (89 - i)::INT)    AS spend_date,
+  (current_date + INTERVAL '1 day' * (i::INT - 89))::DATE AS spend_date,
   channel_id,
   channel_name,
   CASE channel_id
@@ -58,8 +58,8 @@ CROSS JOIN sample_saas_marketing.ad_channels;
 CREATE TABLE sample_saas_marketing.leads AS
 WITH daily_counts AS (
   SELECT
-    (current_date - (89 - i)::INT)   AS lead_date,
-    (95 + (i * 7 + 3) % 16)::INT     AS daily_count
+    (current_date + INTERVAL '1 day' * (i::INT - 89))::DATE AS lead_date,
+    (95 + (i::INT * 7 + 3) % 16)::INT                       AS daily_count
   FROM generate_series(0, 89) gs(i)
 ),
 lead_rows AS (
@@ -114,14 +114,14 @@ SELECT
   l.user_id,
   l.channel_id,
   l.product_id,
-  l.lead_date + (1 + (l.lead_id * 11 + 5) % 14)::INT AS contract_date,
+  (l.lead_date + INTERVAL '1 day' * (1 + (l.lead_id * 11 + 5) % 14)::INT)::DATE AS contract_date,
   p.mrr
 FROM sample_saas_marketing.leads        l
 JOIN sample_saas_marketing.products     p  ON l.product_id = p.product_id
 JOIN sample_saas_marketing.ad_channels  ac ON l.channel_id = ac.channel_id
 WHERE
   (l.lead_id * 13 + 7) % 100 < (ac.contract_rate * 100)::INT
-  AND l.lead_date + (1 + (l.lead_id * 11 + 5) % 14)::INT <= current_date;
+  AND (l.lead_date + INTERVAL '1 day' * (1 + (l.lead_id * 11 + 5) % 14)::INT)::DATE <= current_date;
 
 -- 生成確認
 SELECT 'leads'     AS tbl, COUNT(*) AS cnt, MIN(lead_date)     AS min_date, MAX(lead_date)     AS max_date FROM sample_saas_marketing.leads
