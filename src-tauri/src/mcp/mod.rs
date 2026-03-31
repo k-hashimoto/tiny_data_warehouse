@@ -233,20 +233,23 @@ async fn handle_request(
                     },
                     {
                         "name": "list_tables",
-                        "description": "List all tables in the database with row/column counts.",
+                        "description": "List all tables in the database with row/column counts. Set include_dbt=true to also include dbt tables.",
                         "inputSchema": {
                             "type": "object",
-                            "properties": {}
+                            "properties": {
+                                "include_dbt": { "type": "boolean", "description": "If true, also include dbt tables (default: false)" }
+                            }
                         }
                     },
                     {
                         "name": "get_schema",
-                        "description": "Get column definitions of a table.",
+                        "description": "Get column definitions of a table. Use database=\"dbt\" to get schema from dbt tables.",
                         "inputSchema": {
                             "type": "object",
                             "properties": {
                                 "schema_name": { "type": "string" },
-                                "table_name":  { "type": "string" }
+                                "table_name":  { "type": "string" },
+                                "database":    { "type": "string", "description": "\"main\" (default) or \"dbt\"" }
                             },
                             "required": ["schema_name", "table_name"]
                         }
@@ -359,7 +362,18 @@ async fn call_tool(
         }
 
         "list_tables" => {
-            let tables = db.list_tables().await?;
+            let include_dbt = args
+                .get("include_dbt")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            let mut tables = db.list_tables().await?;
+            if include_dbt {
+                let dbt_path = format!("{}/.tdwh/db/dbt.db", home_dir);
+                match db.list_dbt_tables(dbt_path).await {
+                    Ok(dbt_tables) => tables.extend(dbt_tables),
+                    Err(_) => {} // dbt.db may not exist yet
+                }
+            }
             serde_json::to_string(&tables).map_err(|e| e.to_string())
         }
 
@@ -372,9 +386,16 @@ async fn call_tool(
                 .get("table_name")
                 .and_then(|v| v.as_str())
                 .ok_or("Missing argument: table_name")?;
-            let schema = db
-                .get_schema(schema_name.to_string(), table_name.to_string())
-                .await?;
+            let database = args
+                .get("database")
+                .and_then(|v| v.as_str())
+                .unwrap_or("main");
+            let schema = if database == "dbt" {
+                let dbt_path = format!("{}/.tdwh/db/dbt.db", home_dir);
+                db.get_dbt_schema(dbt_path, schema_name.to_string(), table_name.to_string()).await?
+            } else {
+                db.get_schema(schema_name.to_string(), table_name.to_string()).await?
+            };
             serde_json::to_string(&schema).map_err(|e| e.to_string())
         }
 
