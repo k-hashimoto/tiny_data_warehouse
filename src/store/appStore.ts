@@ -34,6 +34,18 @@ export interface CsvPreviewResult {
   suggested_table_name: string;
 }
 
+export interface JsonImportOptions {
+  file_path: string;
+  table_name: string;
+  schema_name: string;
+  if_exists: string;  // "replace" | "append" | "fail"
+}
+
+export interface JsonPreviewResult {
+  preview: QueryResult;
+  suggested_table_name: string;
+}
+
 export type JobKind =
   | { type: "saved_query"; name: string }
   | { type: "csv_import"; path: string }
