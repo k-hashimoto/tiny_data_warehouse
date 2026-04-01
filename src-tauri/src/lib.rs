@@ -160,6 +160,8 @@ pub fn run() {
             commands::csv::preview_csv,
             commands::csv::import_csv,
             commands::csv::reimport_csv,
+            commands::json::preview_json,
+            commands::json::import_json,
             commands::csv::export_csv,
             commands::csv::export_query_csv,
             commands::scripts::execute_saved_query,

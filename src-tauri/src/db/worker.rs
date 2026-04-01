@@ -4,7 +4,7 @@ use std::time::Instant;
 use duckdb::Connection;
 use crate::db::connection::row_value_to_json;
 use crate::db::sql_util;
-use crate::db::types::{QueryResult, TableInfo, SchemaResult, ColumnInfo, CsvImportOptions, CsvPreviewResult, TableMeta, ColumnMeta};
+use crate::db::types::{QueryResult, TableInfo, SchemaResult, ColumnInfo, CsvImportOptions, CsvPreviewResult, JsonImportOptions, JsonPreviewResult, TableMeta, ColumnMeta};
 use crate::file_io;
 
 pub enum WorkerCmd {
@@ -98,6 +98,14 @@ pub enum WorkerCmd {
     ReimportCsv {
         schema_name: String,
         table_name: String,
+        tx: tokio::sync::oneshot::Sender<Result<TableInfo, String>>,
+    },
+    PreviewJson {
+        opts: JsonImportOptions,
+        tx: tokio::sync::oneshot::Sender<Result<JsonPreviewResult, String>>,
+    },
+    ImportJson {
+        opts: JsonImportOptions,
         tx: tokio::sync::oneshot::Sender<Result<TableInfo, String>>,
     },
     TouchTableTimestamp {
@@ -223,6 +231,12 @@ impl DbWorker {
                             exec_touch_table_timestamp(&conn, schema, table, "dbt", false)
                         });
                         let _ = tx.send(result);
+                    }
+                    WorkerCmd::PreviewJson { opts, tx } => {
+                        let _ = tx.send(exec_preview_json(&conn, &opts));
+                    }
+                    WorkerCmd::ImportJson { opts, tx } => {
+                        let _ = tx.send(exec_import_json(&conn, &opts));
                     }
                 }
             }
@@ -354,6 +368,18 @@ impl DbWorker {
     pub async fn touch_dbt_timestamps(&self, tables: Vec<(String, String)>) -> Result<(), String> {
         let (resp_tx, resp_rx) = tokio::sync::oneshot::channel();
         self.tx.send(WorkerCmd::TouchDbtTimestamps { tables, tx: resp_tx }).map_err(|e| e.to_string())?;
+        resp_rx.await.map_err(|e| e.to_string())?
+    }
+
+    pub async fn preview_json(&self, opts: JsonImportOptions) -> Result<JsonPreviewResult, String> {
+        let (resp_tx, resp_rx) = tokio::sync::oneshot::channel();
+        self.tx.send(WorkerCmd::PreviewJson { opts, tx: resp_tx }).map_err(|e| e.to_string())?;
+        resp_rx.await.map_err(|e| e.to_string())?
+    }
+
+    pub async fn import_json(&self, opts: JsonImportOptions) -> Result<TableInfo, String> {
+        let (resp_tx, resp_rx) = tokio::sync::oneshot::channel();
+        self.tx.send(WorkerCmd::ImportJson { opts, tx: resp_tx }).map_err(|e| e.to_string())?;
         resp_rx.await.map_err(|e| e.to_string())?
     }
 }
@@ -763,4 +789,55 @@ fn exec_reimport_csv(conn: &Connection, schema_name: &str, table_name: &str) -> 
         if_exists: "replace".to_string(),
     };
     exec_import_csv(conn, &opts)
+}
+
+fn exec_preview_json(conn: &Connection, opts: &JsonImportOptions) -> Result<JsonPreviewResult, String> {
+    let json_expr = file_io::json::build_read_expr(opts);
+    let sql = format!("SELECT * FROM {} LIMIT 10", json_expr);
+    let preview = exec_query(conn, &sql)?;
+    let suggested_table_name = std::path::Path::new(&opts.file_path)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("imported_table")
+        .to_string();
+    Ok(JsonPreviewResult { preview, suggested_table_name })
+}
+
+fn exec_import_json(conn: &Connection, opts: &JsonImportOptions) -> Result<TableInfo, String> {
+    let json_expr = file_io::json::build_read_expr(opts);
+    let qualified = sql_util::qualified(&opts.schema_name, &opts.table_name);
+
+    let sql = match opts.if_exists.as_str() {
+        "append" => format!("INSERT INTO {} SELECT * FROM {}", qualified, json_expr),
+        "replace" => format!("CREATE OR REPLACE TABLE {} AS SELECT * FROM {}", qualified, json_expr),
+        _ => format!("CREATE TABLE {} AS SELECT * FROM {}", qualified, json_expr),
+    };
+
+    conn.execute(&sql, []).map_err(|e| e.to_string())?;
+    let is_new = opts.if_exists != "replace";
+    let _ = exec_touch_table_timestamp(conn, &opts.schema_name, &opts.table_name, "adhoc", is_new);
+
+    let row_count: i64 = conn
+        .query_row(&format!("SELECT COUNT(*) FROM {}", qualified), [], |r| r.get(0))
+        .unwrap_or(0);
+    let column_count: i64 = conn
+        .query_row(
+            &format!(
+                "SELECT COUNT(*) FROM duckdb_columns() WHERE schema_name = {} AND table_name = {}",
+                sql_util::literal(&opts.schema_name),
+                sql_util::literal(&opts.table_name)
+            ),
+            [],
+            |r| r.get(0),
+        )
+        .unwrap_or(0);
+
+    Ok(TableInfo {
+        name: opts.table_name.clone(),
+        schema_name: opts.schema_name.clone(),
+        row_count,
+        column_count,
+        csv_source_path: None,
+        table_type: "table".to_string(),
+    })
 }
