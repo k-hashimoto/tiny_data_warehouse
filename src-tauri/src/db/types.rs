@@ -50,6 +50,20 @@ pub struct CsvPreviewResult {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct JsonImportOptions {
+    pub file_path: String,
+    pub table_name: String,
+    pub schema_name: String,
+    pub if_exists: String,  // "replace" | "append" | "fail"
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct JsonPreviewResult {
+    pub preview: QueryResult,
+    pub suggested_table_name: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ColumnMeta {
     pub name: String,
     pub data_type: String,
