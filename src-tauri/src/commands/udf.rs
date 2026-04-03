@@ -64,7 +64,7 @@ pub async fn get_udf_sql(name: String, db: State<'_, DbWorker>) -> Result<String
     let params = row_str(&row, params_idx);
     let definition = row_str(&row, def_idx);
     Ok(format!(
-        "CREATE OR REPLACE MACRO {}({}) AS ({});",
+        "CREATE OR REPLACE MACRO {}({}) AS {};",
         sql_util::ident(&name),
         params,
         definition
@@ -106,7 +106,7 @@ pub async fn rename_udf(old_name: String, new_name: String, db: State<'_, DbWork
 
     // Create with new name
     let create_sql = format!(
-        "CREATE OR REPLACE MACRO {}({}) AS ({})",
+        "CREATE OR REPLACE MACRO {}({}) AS {}",
         sql_util::ident(&new_name),
         params,
         definition

@@ -43,6 +43,7 @@ export function Editor() {
   const [saveScriptName, setSaveScriptName] = useState("");
   const [saveError, setSaveError] = useState("");
   const [udfSaving, setUdfSaving] = useState(false);
+  const [udfError, setUdfError] = useState("");
 
   useEffect(() => {
     if (saveDialogPending) {
@@ -88,12 +89,13 @@ export function Editor() {
 
   async function handleExecuteUdf() {
     setUdfSaving(true);
+    setUdfError("");
     try {
       await invoke("save_udf", { sql });
       const infos = await invoke<{ name: string }[]>("list_udfs");
       setUdfs(infos.map((u) => u.name));
     } catch (e) {
-      console.error(e);
+      setUdfError(String(e));
     } finally {
       setUdfSaving(false);
     }
@@ -210,6 +212,11 @@ export function Editor() {
           <ClockIcon className="h-3 w-3" />
           History
         </Button>
+        {udfError && (
+          <span className="text-[10px] text-destructive truncate max-w-[200px]" title={udfError}>
+            {udfError}
+          </span>
+        )}
         <Button
           size="sm"
           variant="ghost"
