@@ -71,10 +71,22 @@ pub async fn get_udf_sql(name: String, db: State<'_, DbWorker>) -> Result<String
     ))
 }
 
-/// Execute arbitrary SQL to register a UDF (CREATE OR REPLACE MACRO ...).
+/// Execute arbitrary SQL to register a UDF.
+/// Automatically upgrades `CREATE MACRO` to `CREATE OR REPLACE MACRO` so that
+/// overwriting an existing macro does not require manual edits.
 #[tauri::command]
 pub async fn save_udf(sql: String, db: State<'_, DbWorker>) -> Result<(), String> {
-    db.query(sql).await.map(|_| ())
+    let sql_trimmed = sql.trim().to_string();
+    let sql_upper = sql_trimmed.to_uppercase();
+    let normalized = if sql_upper.starts_with("CREATE MACRO ")
+        && !sql_upper.starts_with("CREATE OR REPLACE ")
+    {
+        // Insert "OR REPLACE " after "CREATE "
+        format!("CREATE OR REPLACE {}", &sql_trimmed["CREATE ".len()..])
+    } else {
+        sql_trimmed
+    };
+    db.query(normalized).await.map(|_| ())
 }
 
 #[tauri::command]
