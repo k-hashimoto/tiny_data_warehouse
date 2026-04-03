@@ -22,6 +22,7 @@ export function Editor() {
   const updateTabSql = useAppStore((s) => s.updateTabSql);
   const closeTab = useAppStore((s) => s.closeTab);
   const setTabLinkedScript = useAppStore((s) => s.setTabLinkedScript);
+  const setTabLinkedMacro = useAppStore((s) => s.setTabLinkedMacro);
   const activeTab = useAppStore((s) => s.getActiveTab());
   const scripts = useAppStore((s) => s.scripts);
   const setScripts = useAppStore((s) => s.setScripts);
@@ -37,6 +38,7 @@ export function Editor() {
   const sql = activeTab.sql;
 
   const runQuery = useRunQuery();
+  const saveShortcutRef = useRef<() => Promise<void>>(async () => {});
   const [editorConfig, setEditorConfig] = useState<EditorConfig>(defaultEditorConfig);
   const [showSaveDialog, setShowSaveDialog] = useState(false);
   const [saveScriptName, setSaveScriptName] = useState("");
@@ -88,7 +90,29 @@ export function Editor() {
     await runQuery(sql);
   }
 
+  async function handleSaveShortcut() {
+    const tab = useAppStore.getState().getActiveTab();
+    if (tab.linkedMacro) {
+      try {
+        await invoke("save_macro", { name: tab.linkedMacro, content: tab.sql });
+        setTabLinkedMacro(tab.id, tab.linkedMacro);
+        // ファイル保存後、DuckDB に即時反映
+        await invoke("reload_macros");
+      } catch (e) { console.error(e); }
+    } else if (tab.linkedScript) {
+      try {
+        await invoke("save_script", { name: tab.linkedScript, content: tab.sql });
+        const updated = await invoke<string[]>("list_scripts");
+        useAppStore.getState().setScripts(updated);
+        setTabLinkedScript(tab.id, tab.linkedScript);
+      } catch (e) { console.error(e); }
+    } else {
+      openSaveDialog();
+    }
+  }
+
   runQueryRef.current = handleRunQuery;
+  saveShortcutRef.current = handleSaveShortcut;
 
   function handleEditorMount(
     editor: Monaco.editor.IStandaloneCodeEditor,
@@ -100,6 +124,12 @@ export function Editor() {
       label: "Run Query",
       keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter],
       run: () => { runQueryRef.current(); },
+    });
+    editor.addAction({
+      id: "save-file",
+      label: "Save File",
+      keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS],
+      run: () => { saveShortcutRef.current(); },
     });
   }
 
@@ -188,6 +218,19 @@ export function Editor() {
           <ClockIcon className="h-3 w-3" />
           History
         </Button>
+        {activeTab.linkedMacro && (
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-6 text-xs gap-1"
+            onClick={handleSaveShortcut}
+            title={`Save macro "${activeTab.linkedMacro}" (⌘S)`}
+          >
+            <SaveIcon className="h-3 w-3" />
+            Save Macro
+            <span className="text-muted-foreground text-[10px] ml-1">⌘S</span>
+          </Button>
+        )}
         <Button
           size="sm"
           variant="ghost"

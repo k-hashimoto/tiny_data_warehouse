@@ -4,6 +4,7 @@ import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/componen
 import { TableTree } from "@/components/Explorer/TableTree";
 import { DbtSection } from "@/components/Explorer/DbtSection";
 import { ScriptList } from "@/components/Explorer/ScriptList";
+import { MacroList } from "@/components/Explorer/MacroList";
 const HEADER_PX = 28;
 
 export function ExplorerPanel() {
@@ -14,6 +15,8 @@ export function ExplorerPanel() {
   const [tableTreeCollapsed, setTableTreeCollapsed] = useState(false);
   const [dbtCollapsed, setDbtCollapsed] = useState(false);
   const [scriptCollapsed, setScriptCollapsed] = useState(false);
+  const [macroCollapsed, setMacroCollapsed] = useState(false);
+  const macroRef = usePanelRef();
 
   function togglePanel(
     panelRef: ReturnType<typeof usePanelRef>,
@@ -73,7 +76,7 @@ export function ExplorerPanel() {
         collapsible
         collapsedSize={`${HEADER_PX}px`}
         minSize="60px"
-        defaultSize="25%"
+        defaultSize="15%"
         onResize={() => {
           setScriptCollapsed(scriptRef.current?.isCollapsed() ?? false);
         }}
@@ -81,6 +84,24 @@ export function ExplorerPanel() {
         <ScriptList
           isCollapsed={scriptCollapsed}
           onToggleCollapse={() => togglePanel(scriptRef, setScriptCollapsed)}
+        />
+      </ResizablePanel>
+
+      <ResizableHandle withHandle className="z-10" />
+
+      <ResizablePanel
+        panelRef={macroRef}
+        collapsible
+        collapsedSize={`${HEADER_PX}px`}
+        minSize="60px"
+        defaultSize="10%"
+        onResize={() => {
+          setMacroCollapsed(macroRef.current?.isCollapsed() ?? false);
+        }}
+      >
+        <MacroList
+          isCollapsed={macroCollapsed}
+          onToggleCollapse={() => togglePanel(macroRef, setMacroCollapsed)}
         />
       </ResizablePanel>
 

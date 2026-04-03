@@ -76,6 +76,7 @@ pub fn run() {
             // Launch the built-in MCP server (Streamable HTTP)
             let mcp_home = home.to_str().unwrap_or("").to_string();
             let mcp_app = app.handle().clone();
+            let db_for_macros = db.clone();
             tauri::async_runtime::spawn(mcp::run_mcp_server(
                 db,
                 mcp_active,
@@ -85,6 +86,13 @@ pub fn run() {
             ));
 
             commands::scripts::seed_default_scripts(app.handle());
+
+            // Load macros from ~/.tdwh/macros/ at startup
+            let macros_dir = home.join(".tdwh").join("macros");
+            std::fs::create_dir_all(&macros_dir)?;
+            tauri::async_runtime::spawn(async move {
+                commands::macros::load_macros_on_startup(&macros_dir, &db_for_macros).await;
+            });
 
             // File watcher: notify frontend when dbt.db changes
             let (change_tx, mut change_rx) = tokio::sync::mpsc::channel::<()>(8);
@@ -178,6 +186,10 @@ pub fn run() {
             commands::metadata::save_table_meta,
             commands::metadata::sync_yml_metadata,
             commands::metadata::touch_dbt_timestamps,
+            commands::macros::list_macros,
+            commands::macros::read_macro,
+            commands::macros::save_macro,
+            commands::macros::reload_macros,
             get_mcp_server_status,
             stop_mcp_server,
             restart_mcp_server,
