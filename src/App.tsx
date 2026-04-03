@@ -108,14 +108,15 @@ function App() {
       {/* macOS titlebar drag region */}
       <div data-tauri-drag-region className="h-7 shrink-0 bg-background flex items-center justify-end px-3 gap-1.5">
         <button
-          className="pointer-events-auto"
+          className="pointer-events-auto flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
           onClick={toggleTheme}
           title={editorConfig.theme === "dark" ? "ライトテーマに切り替え" : "ダークテーマに切り替え"}
         >
           {editorConfig.theme === "dark"
-            ? <SunIcon className="h-3 w-3 text-muted-foreground opacity-50 hover:opacity-100 transition-opacity" />
-            : <MoonIcon className="h-3 w-3 text-muted-foreground opacity-50 hover:opacity-100 transition-opacity" />}
+            ? <><SunIcon className="h-3 w-3" /><span>Light</span></>
+            : <><MoonIcon className="h-3 w-3" /><span>Dark</span></>}
         </button>
+        <span className="text-border text-[10px] mx-1">|</span>
         {mcpServerReady !== null && (
           <>
             <div className="pointer-events-none flex items-center gap-1 text-[10px] text-muted-foreground">
