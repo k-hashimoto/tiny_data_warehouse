@@ -1,6 +1,6 @@
 [package]
 name = "tiny-data-ware-house"
-version = "0.1.1"
+version = "0.1.5"
 description = "Tiny Data Ware House"
 authors = ["you"]
 edition = "2021"
