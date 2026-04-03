@@ -30,6 +30,7 @@ pub async fn list_udfs(db: State<'_, DbWorker>) -> Result<Vec<UdfInfo>, String> 
                FROM duckdb_functions() \
                WHERE function_type IN ('macro', 'table_macro') \
                AND schema_name = 'main' \
+               AND internal = false \
                ORDER BY function_name".to_string();
     let result = db.query(sql).await?;
     let name_idx = col_idx(&result.columns, "function_name").ok_or("column not found")?;
@@ -52,6 +53,7 @@ pub async fn get_udf_sql(name: String, db: State<'_, DbWorker>) -> Result<String
          WHERE function_name = {} \
          AND schema_name = 'main' \
          AND function_type IN ('macro', 'table_macro') \
+         AND internal = false \
          LIMIT 1",
         sql_util::literal(&name)
     );
@@ -90,6 +92,7 @@ pub async fn rename_udf(old_name: String, new_name: String, db: State<'_, DbWork
          WHERE function_name = {} \
          AND schema_name = 'main' \
          AND function_type IN ('macro', 'table_macro') \
+         AND internal = false \
          LIMIT 1",
         sql_util::literal(&old_name)
     );
