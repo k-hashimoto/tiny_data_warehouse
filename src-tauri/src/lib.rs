@@ -73,10 +73,6 @@ pub fn run() {
             let mcp_handle = Arc::new(McpServerHandle::empty());
             app.manage(mcp_handle.clone());
 
-            // Load persisted UDF definitions into DuckDB
-            let db_for_udf = db.clone();
-            let app_for_udf = app.handle().clone();
-
             // Launch the built-in MCP server (Streamable HTTP)
             let mcp_home = home.to_str().unwrap_or("").to_string();
             let mcp_app = app.handle().clone();
@@ -89,9 +85,6 @@ pub fn run() {
             ));
 
             commands::scripts::seed_default_scripts(app.handle());
-            tauri::async_runtime::spawn(async move {
-                commands::udf::load_all_udfs(&app_for_udf, &db_for_udf).await;
-            });
 
             // File watcher: notify frontend when dbt.db changes
             let (change_tx, mut change_rx) = tokio::sync::mpsc::channel::<()>(8);
@@ -186,9 +179,10 @@ pub fn run() {
             commands::metadata::sync_yml_metadata,
             commands::metadata::touch_dbt_timestamps,
             commands::udf::list_udfs,
-            commands::udf::read_udf,
+            commands::udf::get_udf_sql,
             commands::udf::save_udf,
             commands::udf::delete_udf,
+            commands::udf::rename_udf,
             get_mcp_server_status,
             stop_mcp_server,
             restart_mcp_server,

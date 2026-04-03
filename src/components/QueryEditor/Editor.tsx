@@ -22,7 +22,6 @@ export function Editor() {
   const updateTabSql = useAppStore((s) => s.updateTabSql);
   const closeTab = useAppStore((s) => s.closeTab);
   const setTabLinkedScript = useAppStore((s) => s.setTabLinkedScript);
-  const setTabLinkedUdf = useAppStore((s) => s.setTabLinkedUdf);
   const activeTab = useAppStore((s) => s.getActiveTab());
   const scripts = useAppStore((s) => s.scripts);
   const setScripts = useAppStore((s) => s.setScripts);
@@ -43,9 +42,6 @@ export function Editor() {
   const [showSaveDialog, setShowSaveDialog] = useState(false);
   const [saveScriptName, setSaveScriptName] = useState("");
   const [saveError, setSaveError] = useState("");
-  const [showUdfDialog, setShowUdfDialog] = useState(false);
-  const [udfName, setUdfName] = useState("");
-  const [udfError, setUdfError] = useState("");
   const [udfSaving, setUdfSaving] = useState(false);
 
   useEffect(() => {
@@ -90,38 +86,12 @@ export function Editor() {
     padding: { top: 8 },
   }), [editorConfig]);
 
-  function openUdfDialog() {
-    setUdfName(activeTab.linkedUdf ?? "");
-    setUdfError("");
-    setShowUdfDialog(true);
-  }
-
-  async function handleSaveUdf() {
-    const name = udfName.trim();
-    if (!name) { setUdfError("名前を入力してください"); return; }
+  async function handleExecuteUdf() {
     setUdfSaving(true);
     try {
-      await invoke("save_udf", { name, sql });
-      const updated = await invoke<string[]>("list_udfs");
-      setUdfs(updated);
-      setTabLinkedUdf(activeTabId, name);
-      setShowUdfDialog(false);
-      setUdfError("");
-    } catch (e) {
-      setUdfError(String(e));
-    } finally {
-      setUdfSaving(false);
-    }
-  }
-
-  async function handleOverwriteUdf() {
-    if (!activeTab.linkedUdf) return;
-    setUdfSaving(true);
-    try {
-      await invoke("save_udf", { name: activeTab.linkedUdf, sql });
-      const updated = await invoke<string[]>("list_udfs");
-      setUdfs(updated);
-      setTabLinkedUdf(activeTabId, activeTab.linkedUdf);
+      await invoke("save_udf", { sql });
+      const infos = await invoke<{ name: string }[]>("list_udfs");
+      setUdfs(infos.map((u) => u.name));
     } catch (e) {
       console.error(e);
     } finally {
@@ -240,44 +210,31 @@ export function Editor() {
           <ClockIcon className="h-3 w-3" />
           History
         </Button>
-        {activeTab.linkedUdf ? (
+        <Button
+          size="sm"
+          variant="ghost"
+          className="h-6 text-xs gap-1"
+          onClick={handleExecuteUdf}
+          disabled={udfSaving}
+          title="SQLを実行してUDFを登録（CREATE OR REPLACE MACRO）"
+        >
+          {udfSaving
+            ? <Loader2Icon className="h-3 w-3 animate-spin" />
+            : <FunctionSquareIcon className="h-3 w-3" />}
+          {activeTab.linkedUdf ? "Save UDF" : "UDF"}
+        </Button>
+        {!activeTab.linkedUdf && (
           <Button
             size="sm"
             variant="ghost"
             className="h-6 text-xs gap-1"
-            onClick={handleOverwriteUdf}
-            disabled={udfSaving || !activeTab.isDirty}
-            title={`UDFを保存して登録: ${activeTab.linkedUdf}`}
+            onClick={openSaveDialog}
+            title="Save as script (⌘S)"
           >
-            {udfSaving
-              ? <Loader2Icon className="h-3 w-3 animate-spin" />
-              : <FunctionSquareIcon className="h-3 w-3" />}
-            Save UDF
+            <SaveIcon className="h-3 w-3" />
+            Save
+            <span className="text-muted-foreground text-[10px] ml-1">⌘S</span>
           </Button>
-        ) : (
-          <>
-            <Button
-              size="sm"
-              variant="ghost"
-              className="h-6 text-xs gap-1"
-              onClick={openUdfDialog}
-              title="UDFとして登録"
-            >
-              <FunctionSquareIcon className="h-3 w-3" />
-              UDF
-            </Button>
-            <Button
-              size="sm"
-              variant="ghost"
-              className="h-6 text-xs gap-1"
-              onClick={openSaveDialog}
-              title="Save as script (⌘S)"
-            >
-              <SaveIcon className="h-3 w-3" />
-              Save
-              <span className="text-muted-foreground text-[10px] ml-1">⌘S</span>
-            </Button>
-          </>
         )}
         <Button size="sm" onClick={handleRunQuery} disabled={isRunning} className={`h-6 text-xs gap-1 ${isRunning ? "opacity-80" : ""}`}>
           {isRunning
@@ -343,42 +300,6 @@ export function Editor() {
                 }}
               >
                 Save
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* UDF save dialog */}
-      {showUdfDialog && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-popover border rounded-lg shadow-xl p-4 w-80 text-sm">
-            <p className="font-semibold mb-1">UDFとして登録</p>
-            <p className="text-xs text-muted-foreground mb-3">
-              SQLを実行してDuckDBにマクロを登録し、~/.tdwh/udfs/ に保存します。
-            </p>
-            <input
-              autoFocus
-              className="w-full border rounded px-2 py-1 text-xs bg-background mb-1"
-              placeholder="udf name"
-              value={udfName}
-              onChange={(e) => { setUdfName(e.target.value); setUdfError(""); }}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") handleSaveUdf();
-                if (e.key === "Escape") setShowUdfDialog(false);
-              }}
-            />
-            <p className="text-[10px] text-muted-foreground mb-3">
-              ~/.tdwh/udfs/<span className="font-mono">{udfName || "…"}</span>.sql
-            </p>
-            {udfError && <p className="text-xs text-destructive mb-2">{udfError}</p>}
-            <div className="flex justify-end gap-2">
-              <Button size="sm" variant="ghost" onClick={() => setShowUdfDialog(false)}>
-                Cancel
-              </Button>
-              <Button size="sm" onClick={handleSaveUdf} disabled={udfSaving}>
-                {udfSaving ? <Loader2Icon className="h-3 w-3 animate-spin mr-1" /> : null}
-                登録
               </Button>
             </div>
           </div>

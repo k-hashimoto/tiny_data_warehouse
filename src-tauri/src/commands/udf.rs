@@ -1,85 +1,116 @@
-use std::path::{Path, PathBuf};
-use tauri::Manager;
 use tauri::State;
+use serde::Serialize;
 use crate::db::worker::DbWorker;
+use crate::db::sql_util;
 
-fn udfs_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
-    let home = app.path().home_dir().map_err(|e| e.to_string())?;
-    let dir = home.join(".tdwh").join("udfs");
-    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    Ok(dir)
+#[derive(Serialize)]
+pub struct UdfInfo {
+    pub name: String,
+    pub params: String,
+    pub definition: String,
 }
 
-fn validate_name(name: &str) -> Result<(), String> {
-    if name.is_empty() {
-        return Err("UDF name must not be empty".into());
+fn col_idx(columns: &[String], name: &str) -> Option<usize> {
+    columns.iter().position(|c| c == name)
+}
+
+fn row_str(row: &[serde_json::Value], idx: usize) -> String {
+    match row.get(idx) {
+        Some(serde_json::Value::String(s)) => s.clone(),
+        Some(v) => v.to_string(),
+        None => String::new(),
     }
-    let p = Path::new(name);
-    for component in p.components() {
-        match component {
-            std::path::Component::Normal(_) => {}
-            _ => return Err("Invalid UDF name".into()),
-        }
-    }
-    Ok(())
 }
 
 #[tauri::command]
-pub fn list_udfs(app: tauri::AppHandle) -> Result<Vec<String>, String> {
-    let dir = udfs_dir(&app)?;
-    let mut names = Vec::new();
-    let Ok(entries) = std::fs::read_dir(&dir) else {
-        return Ok(names);
-    };
-    for entry in entries.filter_map(|e| e.ok()) {
-        let path = entry.path();
-        if path.extension().and_then(|s| s.to_str()) == Some("sql") {
-            if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
-                names.push(stem.to_string());
-            }
-        }
-    }
-    names.sort();
-    Ok(names)
+pub async fn list_udfs(db: State<'_, DbWorker>) -> Result<Vec<UdfInfo>, String> {
+    let sql = "SELECT function_name, \
+               array_to_string(parameters, ', ') AS params, \
+               macro_definition \
+               FROM duckdb_functions() \
+               WHERE function_type IN ('macro', 'table_macro') \
+               AND schema_name = 'main' \
+               ORDER BY function_name".to_string();
+    let result = db.query(sql).await?;
+    let name_idx = col_idx(&result.columns, "function_name").ok_or("column not found")?;
+    let params_idx = col_idx(&result.columns, "params").ok_or("column not found")?;
+    let def_idx = col_idx(&result.columns, "macro_definition").ok_or("column not found")?;
+    let udfs = result.rows.iter().map(|row| UdfInfo {
+        name: row_str(row, name_idx),
+        params: row_str(row, params_idx),
+        definition: row_str(row, def_idx),
+    }).collect();
+    Ok(udfs)
 }
 
+/// Reconstruct the CREATE OR REPLACE MACRO SQL for a given UDF name.
 #[tauri::command]
-pub fn read_udf(app: tauri::AppHandle, name: String) -> Result<String, String> {
-    validate_name(&name)?;
-    let path = udfs_dir(&app)?.join(format!("{}.sql", name));
-    std::fs::read_to_string(&path).map_err(|e| e.to_string())
+pub async fn get_udf_sql(name: String, db: State<'_, DbWorker>) -> Result<String, String> {
+    let sql = format!(
+        "SELECT array_to_string(parameters, ', ') AS params, macro_definition, function_type \
+         FROM duckdb_functions() \
+         WHERE function_name = {} \
+         AND schema_name = 'main' \
+         AND function_type IN ('macro', 'table_macro') \
+         LIMIT 1",
+        sql_util::literal(&name)
+    );
+    let result = db.query(sql).await?;
+    let row = result.rows.into_iter().next().ok_or_else(|| format!("UDF '{}' not found", name))?;
+    let params_idx = col_idx(&result.columns, "params").ok_or("column not found")?;
+    let def_idx = col_idx(&result.columns, "macro_definition").ok_or("column not found")?;
+    let params = row_str(&row, params_idx);
+    let definition = row_str(&row, def_idx);
+    Ok(format!(
+        "CREATE OR REPLACE MACRO {}({}) AS ({});",
+        sql_util::ident(&name),
+        params,
+        definition
+    ))
 }
 
+/// Execute arbitrary SQL to register a UDF (CREATE OR REPLACE MACRO ...).
 #[tauri::command]
-pub async fn save_udf(
-    app: tauri::AppHandle,
-    name: String,
-    sql: String,
-    db: State<'_, DbWorker>,
-) -> Result<(), String> {
-    validate_name(&name)?;
-    let path = udfs_dir(&app)?.join(format!("{}.sql", name));
-    std::fs::write(&path, &sql).map_err(|e| e.to_string())?;
+pub async fn save_udf(sql: String, db: State<'_, DbWorker>) -> Result<(), String> {
     db.query(sql).await.map(|_| ())
 }
 
 #[tauri::command]
-pub fn delete_udf(app: tauri::AppHandle, name: String) -> Result<(), String> {
-    validate_name(&name)?;
-    let path = udfs_dir(&app)?.join(format!("{}.sql", name));
-    std::fs::remove_file(&path).map_err(|e| e.to_string())
+pub async fn delete_udf(name: String, db: State<'_, DbWorker>) -> Result<(), String> {
+    let sql = format!("DROP MACRO IF EXISTS {}", sql_util::ident(&name));
+    db.query(sql).await.map(|_| ())
 }
 
-/// Startup: load all saved UDF definitions into DuckDB.
-pub async fn load_all_udfs(app: &tauri::AppHandle, db: &DbWorker) {
-    let Ok(dir) = udfs_dir(app) else { return };
-    let Ok(entries) = std::fs::read_dir(&dir) else { return };
-    for entry in entries.filter_map(|e| e.ok()) {
-        let path = entry.path();
-        if path.extension().and_then(|s| s.to_str()) == Some("sql") {
-            if let Ok(sql) = std::fs::read_to_string(&path) {
-                let _ = db.query(sql).await;
-            }
-        }
-    }
+#[tauri::command]
+pub async fn rename_udf(old_name: String, new_name: String, db: State<'_, DbWorker>) -> Result<(), String> {
+    // Get current definition
+    let fetch_sql = format!(
+        "SELECT array_to_string(parameters, ', ') AS params, macro_definition \
+         FROM duckdb_functions() \
+         WHERE function_name = {} \
+         AND schema_name = 'main' \
+         AND function_type IN ('macro', 'table_macro') \
+         LIMIT 1",
+        sql_util::literal(&old_name)
+    );
+    let result = db.query(fetch_sql).await?;
+    let row = result.rows.into_iter().next()
+        .ok_or_else(|| format!("UDF '{}' not found", old_name))?;
+    let params_idx = col_idx(&result.columns, "params").ok_or("column not found")?;
+    let def_idx = col_idx(&result.columns, "macro_definition").ok_or("column not found")?;
+    let params = row_str(&row, params_idx);
+    let definition = row_str(&row, def_idx);
+
+    // Create with new name
+    let create_sql = format!(
+        "CREATE OR REPLACE MACRO {}({}) AS ({})",
+        sql_util::ident(&new_name),
+        params,
+        definition
+    );
+    db.query(create_sql).await?;
+
+    // Drop old name
+    let drop_sql = format!("DROP MACRO IF EXISTS {}", sql_util::ident(&old_name));
+    db.query(drop_sql).await.map(|_| ())
 }

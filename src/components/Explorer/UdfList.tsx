@@ -5,43 +5,55 @@ import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import {
   FunctionSquareIcon, RefreshCwIcon, Trash2Icon,
-  ChevronRightIcon, ChevronDownIcon, PlusIcon, SaveIcon,
+  ChevronRightIcon, ChevronDownIcon, PlusIcon, PencilIcon,
 } from "lucide-react";
+
+interface UdfInfo {
+  name: string;
+  params: string;
+  definition: string;
+}
 
 interface Props {
   isCollapsed: boolean;
   onToggleCollapse: () => void;
 }
 
-const UDF_TEMPLATE = `-- UDF名に合わせてマクロ名を変更してください
+const UDF_TEMPLATE = `-- マクロ名・引数・処理を変更してください
 CREATE OR REPLACE MACRO my_func(x) AS (x);
 `;
 
 export function UdfList({ isCollapsed, onToggleCollapse }: Props) {
-  const udfs = useAppStore((s) => s.udfs);
   const setUdfs = useAppStore((s) => s.setUdfs);
   const tabs = useAppStore((s) => s.tabs);
   const activeTabId = useAppStore((s) => s.activeTabId);
-  const sql = useAppStore((s) => s.sql);
   const addTab = useAppStore((s) => s.addTab);
   const setActiveTab = useAppStore((s) => s.setActiveTab);
   const setTabLinkedUdf = useAppStore((s) => s.setTabLinkedUdf);
   const renameTab = useAppStore((s) => s.renameTab);
 
+  const [udfInfos, setUdfInfos] = useState<UdfInfo[]>([]);
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
+  const [renamingUdf, setRenamingUdf] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+  const [renameError, setRenameError] = useState("");
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; name: string } | null>(null);
   const contextMenuRef = useRef<HTMLDivElement>(null);
+  const renameInputRef = useRef<HTMLInputElement>(null);
 
   async function refresh() {
     try {
-      const names = await invoke<string[]>("list_udfs");
-      setUdfs(names);
+      const infos = await invoke<UdfInfo[]>("list_udfs");
+      setUdfInfos(infos);
+      setUdfs(infos.map((u) => u.name));
     } catch (_) {}
   }
 
+  useEffect(() => { refresh(); }, []);
+
   useEffect(() => {
-    refresh();
-  }, []);
+    if (renamingUdf) renameInputRef.current?.focus();
+  }, [renamingUdf]);
 
   useEffect(() => {
     if (!contextMenu) return;
@@ -57,20 +69,15 @@ export function UdfList({ isCollapsed, onToggleCollapse }: Props) {
   async function openUdf(name: string) {
     try {
       const existingTab = tabs.find((t) => t.linkedUdf === name);
-      if (existingTab) {
-        setActiveTab(existingTab.id);
-        return;
-      }
-      const content = await invoke<string>("read_udf", { name });
+      if (existingTab) { setActiveTab(existingTab.id); return; }
+      const sql = await invoke<string>("get_udf_sql", { name });
       addTab();
       const { tabs: updatedTabs } = useAppStore.getState();
       const newTab = updatedTabs[updatedTabs.length - 1];
       renameTab(newTab.id, name);
-      setTabLinkedUdf(newTab.id, name, content);
+      setTabLinkedUdf(newTab.id, name, sql);
       setActiveTab(newTab.id);
-    } catch (e) {
-      console.error(e);
-    }
+    } catch (e) { console.error(e); }
   }
 
   async function createNewUdf() {
@@ -82,13 +89,30 @@ export function UdfList({ isCollapsed, onToggleCollapse }: Props) {
     setActiveTab(newTab.id);
   }
 
-  async function overwriteUdf(name: string) {
+  function startRename(name: string) {
+    setRenamingUdf(name);
+    setRenameValue(name);
+    setRenameError("");
+    setContextMenu(null);
+  }
+
+  async function commitRename() {
+    if (!renamingUdf) return;
+    const newName = renameValue.trim();
+    if (!newName) { setRenameError("名前を入力してください"); return; }
+    if (newName === renamingUdf) { setRenamingUdf(null); return; }
     try {
-      await invoke("save_udf", { name, sql });
-      const linkedTab = tabs.find((t) => t.linkedUdf === name);
-      if (linkedTab) setTabLinkedUdf(linkedTab.id, name);
+      await invoke("rename_udf", { oldName: renamingUdf, newName });
+      // Update any open tab linked to the old UDF name
+      const linkedTab = tabs.find((t) => t.linkedUdf === renamingUdf);
+      if (linkedTab) {
+        renameTab(linkedTab.id, newName);
+        setTabLinkedUdf(linkedTab.id, newName);
+      }
+      await refresh();
+      setRenamingUdf(null);
     } catch (e) {
-      console.error(e);
+      setRenameError(String(e));
     }
   }
 
@@ -97,11 +121,8 @@ export function UdfList({ isCollapsed, onToggleCollapse }: Props) {
     try {
       await invoke("delete_udf", { name: deleteConfirm });
       await refresh();
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setDeleteConfirm(null);
-    }
+    } catch (e) { console.error(e); }
+    finally { setDeleteConfirm(null); }
   }
 
   const isUdfTabActive = (name: string) =>
@@ -132,11 +153,12 @@ export function UdfList({ isCollapsed, onToggleCollapse }: Props) {
       {/* List */}
       {!isCollapsed && (
         <div className="flex-1 overflow-y-auto">
-          {udfs.length === 0 && (
-            <p className="text-xs text-muted-foreground px-3 py-2">No UDFs saved</p>
+          {udfInfos.length === 0 && (
+            <p className="text-xs text-muted-foreground px-3 py-2">No UDFs registered</p>
           )}
-          {udfs.map((name) => {
+          {udfInfos.map(({ name, params }) => {
             const isActive = isUdfTabActive(name);
+            const isRenaming = renamingUdf === name;
             return (
               <div
                 key={name}
@@ -147,31 +169,56 @@ export function UdfList({ isCollapsed, onToggleCollapse }: Props) {
                 }}
               >
                 <FunctionSquareIcon className={`h-3 w-3 shrink-0 ${isActive ? "text-primary" : "text-muted-foreground"}`} />
-                <button
-                  className={`flex-1 text-left text-xs truncate ${isActive ? "text-foreground font-medium" : ""}`}
-                  onClick={() => openUdf(name)}
-                  title={name}
-                >
-                  {name}
-                </button>
-                <Button
-                  size="icon"
-                  variant="ghost"
-                  className={`h-5 w-5 ${isActive ? "opacity-70 hover:opacity-100" : "opacity-0 group-hover:opacity-100"}`}
-                  title="上書き保存（現在のエディタ内容で保存・登録）"
-                  onClick={() => overwriteUdf(name)}
-                >
-                  <SaveIcon className="h-3 w-3" />
-                </Button>
-                <Button
-                  size="icon"
-                  variant="ghost"
-                  className="h-5 w-5 opacity-0 group-hover:opacity-100"
-                  title="削除"
-                  onClick={() => setDeleteConfirm(name)}
-                >
-                  <Trash2Icon className="h-3 w-3" />
-                </Button>
+
+                {isRenaming ? (
+                  <div className="flex-1 flex flex-col min-w-0">
+                    <input
+                      ref={renameInputRef}
+                      className="text-xs bg-background border rounded px-1 py-0.5 outline-none focus:ring-1 focus:ring-primary w-full"
+                      value={renameValue}
+                      onChange={(e) => { setRenameValue(e.target.value); setRenameError(""); }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") commitRename();
+                        if (e.key === "Escape") setRenamingUdf(null);
+                      }}
+                      onBlur={commitRename}
+                    />
+                    {renameError && <span className="text-[10px] text-destructive">{renameError}</span>}
+                  </div>
+                ) : (
+                  <button
+                    className={`flex-1 text-left text-xs truncate ${isActive ? "text-foreground font-medium" : ""}`}
+                    onClick={() => openUdf(name)}
+                    onDoubleClick={() => startRename(name)}
+                    title={`${name}(${params})`}
+                  >
+                    <span>{name}</span>
+                    {params && <span className="text-muted-foreground ml-0.5">({params})</span>}
+                  </button>
+                )}
+
+                {!isRenaming && (
+                  <>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="h-5 w-5 opacity-0 group-hover:opacity-100"
+                      title="名前を変更"
+                      onClick={() => startRename(name)}
+                    >
+                      <PencilIcon className="h-3 w-3" />
+                    </Button>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="h-5 w-5 opacity-0 group-hover:opacity-100"
+                      title="削除"
+                      onClick={() => setDeleteConfirm(name)}
+                    >
+                      <Trash2Icon className="h-3 w-3" />
+                    </Button>
+                  </>
+                )}
               </div>
             );
           })}
@@ -194,10 +241,10 @@ export function UdfList({ isCollapsed, onToggleCollapse }: Props) {
           </button>
           <button
             className="flex items-center gap-2 w-full px-3 py-1.5 hover:bg-accent"
-            onClick={() => { overwriteUdf(contextMenu.name); setContextMenu(null); }}
+            onClick={() => startRename(contextMenu.name)}
           >
-            <SaveIcon className="h-3 w-3" />
-            上書き保存
+            <PencilIcon className="h-3 w-3" />
+            名前を変更
           </button>
           <div className="border-t my-1" />
           <button
@@ -213,7 +260,7 @@ export function UdfList({ isCollapsed, onToggleCollapse }: Props) {
       {deleteConfirm && (
         <ConfirmDialog
           title="UDFを削除"
-          description={`"${deleteConfirm}" を削除します。DuckDB 内のマクロ定義は残ります（手動で DROP MACRO が必要です）。`}
+          description={`"${deleteConfirm}" をDuckDBから削除します（DROP MACRO）。`}
           confirmLabel="Delete"
           cancelLabel="Cancel"
           destructive
