@@ -63,6 +63,7 @@ export interface Tab {
   title: string;
   sql: string;
   linkedScript: string | null;
+  linkedUdf: string | null;
   isDirty: boolean;
   result: QueryResult | null;  // not persisted
   metaPanel: { schemaName: string; tableName: string; isDbt: boolean } | null;
@@ -87,7 +88,7 @@ const DEFAULT_SQL = [
 ].join("\n");
 
 function makeTab(id: string, n: number): Tab {
-  return { id, title: `Untitled ${n}`, sql: DEFAULT_SQL, linkedScript: null, isDirty: false, result: null, metaPanel: null };
+  return { id, title: `Untitled ${n}`, sql: DEFAULT_SQL, linkedScript: null, linkedUdf: null, isDirty: false, result: null, metaPanel: null };
 }
 
 let tabCounter = 1;
@@ -106,6 +107,7 @@ interface AppState {
   updateTabSql: (id: string, sql: string) => void;
   renameTab: (id: string, title: string) => void;
   setTabLinkedScript: (id: string, scriptName: string | null, sql?: string) => void;
+  setTabLinkedUdf: (id: string, udfName: string, sql?: string) => void;
   setTabResult: (id: string, result: QueryResult | null) => void;
   getActiveTab: () => Tab;
 
@@ -113,6 +115,7 @@ interface AppState {
   result: QueryResult | null;
   tables: TableInfo[];
   scripts: string[];
+  udfs: string[];
   dbtTables: TableInfo[];
   error: string;
   status: string;
@@ -128,6 +131,7 @@ interface AppState {
   setResult: (result: QueryResult | null) => void;
   setTables: (tables: TableInfo[]) => void;
   setScripts: (scripts: string[]) => void;
+  setUdfs: (udfs: string[]) => void;
   setDbtTables: (tables: TableInfo[]) => void;
   setError: (error: string) => void;
   setStatus: (status: string) => void;
@@ -189,7 +193,7 @@ export const useAppStore = create<AppState>()(
       updateTabSql: (id: string, sql: string) => {
         set((s) => ({
           tabs: s.tabs.map((t) =>
-            t.id === id ? { ...t, sql, isDirty: t.linkedScript !== null } : t
+            t.id === id ? { ...t, sql, isDirty: t.linkedScript !== null || t.linkedUdf !== null } : t
           ),
         }));
       },
@@ -205,6 +209,16 @@ export const useAppStore = create<AppState>()(
           tabs: s.tabs.map((t) =>
             t.id === id
               ? { ...t, linkedScript: scriptName, isDirty: false, ...(sql !== undefined ? { sql } : {}) }
+              : t
+          ),
+        }));
+      },
+
+      setTabLinkedUdf: (id: string, udfName: string, sql?: string) => {
+        set((s) => ({
+          tabs: s.tabs.map((t) =>
+            t.id === id
+              ? { ...t, linkedUdf: udfName, linkedScript: null, isDirty: false, ...(sql !== undefined ? { sql } : {}) }
               : t
           ),
         }));
@@ -235,6 +249,7 @@ export const useAppStore = create<AppState>()(
       },
       tables: [],
       scripts: [],
+      udfs: [],
       dbtTables: [],
       error: "",
       status: "Ready",
@@ -264,6 +279,7 @@ export const useAppStore = create<AppState>()(
 
       setTables: (tables) => set({ tables }),
       setScripts: (scripts) => set({ scripts }),
+      setUdfs: (udfs) => set({ udfs }),
       setDbtTables: (dbtTables) => set({ dbtTables }),
       setError: (error) => set({ error }),
       setStatus: (status) => set({ status }),

@@ -5,3 +5,4 @@ pub mod json;
 pub mod metadata;
 pub mod query;
 pub mod scripts;
+pub mod udf;
