@@ -5,7 +5,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { useAppStore } from "@/store/appStore";
 import { useRunQuery } from "@/hooks/useRunQuery";
 import { Button } from "@/components/ui/button";
-import { PlayIcon, ClockIcon, SaveIcon, SunIcon, MoonIcon } from "lucide-react";
+import { PlayIcon, ClockIcon, SaveIcon, SunIcon, MoonIcon, Loader2Icon } from "lucide-react";
 import { QueryHistory } from "@/components/QueryHistory/QueryHistory";
 import { QueryTabBar } from "@/components/QueryEditor/QueryTabBar";
 
@@ -199,10 +199,12 @@ export function Editor() {
           Save
           <span className="text-muted-foreground text-[10px] ml-1">⌘S</span>
         </Button>
-        <Button size="sm" onClick={handleRunQuery} disabled={isRunning} className="h-6 text-xs gap-1">
-          <PlayIcon className="h-3 w-3" />
-          Run
-          <span className="text-muted-foreground text-[10px] ml-1">⌘↵</span>
+        <Button size="sm" onClick={handleRunQuery} disabled={isRunning} className={`h-6 text-xs gap-1 ${isRunning ? "opacity-80" : ""}`}>
+          {isRunning
+            ? <Loader2Icon className="h-3 w-3 animate-spin" />
+            : <PlayIcon className="h-3 w-3" />}
+          {isRunning ? "Running..." : "Run"}
+          {!isRunning && <span className="text-muted-foreground text-[10px] ml-1">⌘↵</span>}
         </Button>
       </div>
 
