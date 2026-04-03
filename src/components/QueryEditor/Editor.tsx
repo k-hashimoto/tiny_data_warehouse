@@ -5,19 +5,20 @@ import { invoke } from "@tauri-apps/api/core";
 import { useAppStore } from "@/store/appStore";
 import { useRunQuery } from "@/hooks/useRunQuery";
 import { Button } from "@/components/ui/button";
-import { PlayIcon, ClockIcon, SaveIcon, SunIcon, MoonIcon, Loader2Icon } from "lucide-react";
-import { QueryHistory } from "@/components/QueryHistory/QueryHistory";
+import { PlayIcon, SaveIcon, Loader2Icon } from "lucide-react";
 import { QueryTabBar } from "@/components/QueryEditor/QueryTabBar";
 
-interface EditorConfig {
+export interface EditorConfig {
   line_numbers: boolean;
   tab_size: number;
   theme: string;
 }
 
-const defaultEditorConfig: EditorConfig = { line_numbers: true, tab_size: 4, theme: "dark" };
+interface EditorProps {
+  editorConfig: EditorConfig;
+}
 
-export function Editor() {
+export function Editor({ editorConfig }: EditorProps) {
   const activeTabId = useAppStore((s) => s.activeTabId);
   const updateTabSql = useAppStore((s) => s.updateTabSql);
   const closeTab = useAppStore((s) => s.closeTab);
@@ -27,9 +28,6 @@ export function Editor() {
   const scripts = useAppStore((s) => s.scripts);
   const setScripts = useAppStore((s) => s.setScripts);
   const isRunning = useAppStore((s) => s.isRunning);
-  const historyOpen = useAppStore((s) => s.historyOpen);
-  const setHistoryOpen = useAppStore((s) => s.setHistoryOpen);
-  const setDarkMode = useAppStore((s) => s.setDarkMode);
   const saveDialogPending = useAppStore((s) => s.saveDialogPending);
   const setSaveDialogPending = useAppStore((s) => s.setSaveDialogPending);
   const closeConfirmTab = useAppStore((s) => s.closeConfirmTab);
@@ -39,7 +37,6 @@ export function Editor() {
 
   const runQuery = useRunQuery();
   const saveShortcutRef = useRef<() => Promise<void>>(async () => {});
-  const [editorConfig, setEditorConfig] = useState<EditorConfig>(defaultEditorConfig);
   const [showSaveDialog, setShowSaveDialog] = useState(false);
   const [saveScriptName, setSaveScriptName] = useState("");
   const [saveError, setSaveError] = useState("");
@@ -50,27 +47,6 @@ export function Editor() {
       setSaveDialogPending(false);
     }
   }, [saveDialogPending]);
-
-  useEffect(() => {
-    invoke<EditorConfig>("get_editor_config")
-      .then((cfg) => {
-        setEditorConfig(cfg);
-        setDarkMode(cfg.theme === "dark");
-      })
-      .catch(() => {});
-  }, []);
-
-  async function toggleTheme() {
-    const newTheme = editorConfig.theme === "dark" ? "light" : "dark";
-    const updated = { ...editorConfig, theme: newTheme };
-    setEditorConfig(updated);
-    setDarkMode(newTheme === "dark");
-    try {
-      await invoke("save_editor_config", { config: updated });
-    } catch (e) {
-      console.error(e);
-    }
-  }
 
   const editorRef = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null);
   const runQueryRef = useRef<() => Promise<void>>(async () => {});
@@ -197,27 +173,6 @@ export function Editor() {
           </span>
         )}
         <div className="flex-1" />
-        <Button
-          size="icon"
-          variant="ghost"
-          className="h-6 w-6"
-          onClick={toggleTheme}
-          title={editorConfig.theme === "dark" ? "ライトテーマに切り替え" : "ダークテーマに切り替え"}
-        >
-          {editorConfig.theme === "dark"
-            ? <SunIcon className="h-3 w-3" />
-            : <MoonIcon className="h-3 w-3" />}
-        </Button>
-        <Button
-          size="sm"
-          variant={historyOpen ? "secondary" : "ghost"}
-          className="h-6 text-xs gap-1"
-          onClick={() => setHistoryOpen(!historyOpen)}
-          title="Query History"
-        >
-          <ClockIcon className="h-3 w-3" />
-          History
-        </Button>
         {activeTab.linkedMacro && (
           <Button
             size="sm"
@@ -251,13 +206,7 @@ export function Editor() {
         </Button>
       </div>
 
-      <div className="flex-1 overflow-hidden relative">
-        {historyOpen && (
-          <QueryHistory
-            onSelect={(q) => updateTabSql(activeTabId, q)}
-            onClose={() => setHistoryOpen(false)}
-          />
-        )}
+      <div className="flex-1 overflow-hidden">
         <MonacoEditor
           height="100%"
           language="sql"
