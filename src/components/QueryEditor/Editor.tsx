@@ -22,6 +22,7 @@ export function Editor() {
   const updateTabSql = useAppStore((s) => s.updateTabSql);
   const closeTab = useAppStore((s) => s.closeTab);
   const setTabLinkedScript = useAppStore((s) => s.setTabLinkedScript);
+  const setTabLinkedUdf = useAppStore((s) => s.setTabLinkedUdf);
   const activeTab = useAppStore((s) => s.getActiveTab());
   const scripts = useAppStore((s) => s.scripts);
   const setScripts = useAppStore((s) => s.setScripts);
@@ -94,6 +95,10 @@ export function Editor() {
       await invoke("save_udf", { sql });
       const infos = await invoke<{ name: string }[]>("list_udfs");
       setUdfs(infos.map((u) => u.name));
+      // Reset dirty flag if tab is linked to a UDF
+      if (activeTab.linkedUdf) {
+        setTabLinkedUdf(activeTabId, activeTab.linkedUdf);
+      }
     } catch (e) {
       setUdfError(String(e));
     } finally {

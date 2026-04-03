@@ -17,8 +17,11 @@ fn col_idx(columns: &[String], name: &str) -> Option<usize> {
 fn row_str(row: &[serde_json::Value], idx: usize) -> String {
     match row.get(idx) {
         Some(serde_json::Value::String(s)) => s.clone(),
-        Some(v) => v.to_string(),
-        None => String::new(),
+        Some(serde_json::Value::Null) | None => String::new(),
+        Some(v) => {
+            // Extract inner string from JSON value to avoid double-escaping newlines etc.
+            if let Some(s) = v.as_str() { s.to_string() } else { v.to_string() }
+        }
     }
 }
 
