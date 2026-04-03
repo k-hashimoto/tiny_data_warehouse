@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import {
   FunctionSquareIcon, RefreshCwIcon, Trash2Icon,
-  ChevronRightIcon, ChevronDownIcon, PlusIcon,
+  ChevronRightIcon, ChevronDownIcon, PlusIcon, SaveIcon,
 } from "lucide-react";
 
 interface Props {
@@ -22,6 +22,7 @@ export function UdfList({ isCollapsed, onToggleCollapse }: Props) {
   const setUdfs = useAppStore((s) => s.setUdfs);
   const tabs = useAppStore((s) => s.tabs);
   const activeTabId = useAppStore((s) => s.activeTabId);
+  const sql = useAppStore((s) => s.sql);
   const addTab = useAppStore((s) => s.addTab);
   const setActiveTab = useAppStore((s) => s.setActiveTab);
   const setTabLinkedUdf = useAppStore((s) => s.setTabLinkedUdf);
@@ -79,6 +80,16 @@ export function UdfList({ isCollapsed, onToggleCollapse }: Props) {
     renameTab(newTab.id, "new_udf");
     setTabLinkedUdf(newTab.id, "new_udf", UDF_TEMPLATE);
     setActiveTab(newTab.id);
+  }
+
+  async function overwriteUdf(name: string) {
+    try {
+      await invoke("save_udf", { name, sql });
+      const linkedTab = tabs.find((t) => t.linkedUdf === name);
+      if (linkedTab) setTabLinkedUdf(linkedTab.id, name);
+    } catch (e) {
+      console.error(e);
+    }
   }
 
   async function confirmDelete() {
@@ -146,6 +157,15 @@ export function UdfList({ isCollapsed, onToggleCollapse }: Props) {
                 <Button
                   size="icon"
                   variant="ghost"
+                  className={`h-5 w-5 ${isActive ? "opacity-70 hover:opacity-100" : "opacity-0 group-hover:opacity-100"}`}
+                  title="上書き保存（現在のエディタ内容で保存・登録）"
+                  onClick={() => overwriteUdf(name)}
+                >
+                  <SaveIcon className="h-3 w-3" />
+                </Button>
+                <Button
+                  size="icon"
+                  variant="ghost"
                   className="h-5 w-5 opacity-0 group-hover:opacity-100"
                   title="削除"
                   onClick={() => setDeleteConfirm(name)}
@@ -171,6 +191,13 @@ export function UdfList({ isCollapsed, onToggleCollapse }: Props) {
           >
             <FunctionSquareIcon className="h-3 w-3" />
             エディタで開く
+          </button>
+          <button
+            className="flex items-center gap-2 w-full px-3 py-1.5 hover:bg-accent"
+            onClick={() => { overwriteUdf(contextMenu.name); setContextMenu(null); }}
+          >
+            <SaveIcon className="h-3 w-3" />
+            上書き保存
           </button>
           <div className="border-t my-1" />
           <button
