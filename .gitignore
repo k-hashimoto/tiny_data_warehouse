@@ -6,3 +6,5 @@ node_modules/
 dist/
 tmp/
 
+docs_for_ai
+.steering/
