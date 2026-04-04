@@ -4,6 +4,7 @@
 
 node_modules/
 dist/
-tests/
+tmp/
+
 docs_for_ai
 .steering/
