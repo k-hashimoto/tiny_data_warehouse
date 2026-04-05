@@ -12,6 +12,7 @@ tasks:
     desc: Build App and install to /Applications
     cmds:
       - npm install && npm run tauri build -- --bundles app
+      - task test:db-worker
       - cp -r "src-tauri/target/release/bundle/macos/TinyDataWarehouse.app" /Applications/
 
   release:prepare:
@@ -89,3 +90,8 @@ tasks:
       - rm -rf src-tauri/target/
       - rm -rf dist/
       - rm -rf node_modules/
+
+  change_base_branch:
+    desc: Change PR base bnrach(need PR_ID)
+    cmds:
+      - gh pr edit {{.PR_ID}} --base staging
