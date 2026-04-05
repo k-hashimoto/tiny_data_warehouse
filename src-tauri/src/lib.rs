@@ -1,6 +1,7 @@
 mod commands;
 mod config;
 pub mod db;
+pub mod error;
 mod file_io;
 mod metadata_yml;
 mod mcp;
