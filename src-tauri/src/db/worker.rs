@@ -535,17 +535,65 @@ fn exec_preview_csv(conn: &Connection, opts: &CsvImportOptions) -> Result<CsvPre
     Ok(CsvPreviewResult { preview, suggested_table_name })
 }
 
-fn exec_import_csv(conn: &Connection, opts: &CsvImportOptions) -> Result<TableInfo, String> {
-    let csv_expr = file_io::csv::build_read_expr(opts);
-    let qualified = sql_util::qualified(&opts.schema_name, &opts.table_name);
+/// CSV/JSON インポートの共通パラメータ
+struct ImportParams<'a> {
+    schema_name: &'a str,
+    table_name: &'a str,
+    /// read_csv(...) または read_json(...) の SQL 式
+    read_sql: &'a str,
+    if_exists: &'a str,
+    /// インポート後に TableInfo.csv_source_path として返すパス（CSV のみ Some）
+    csv_source_path: Option<String>,
+}
 
-    let sql = match opts.if_exists.as_str() {
-        "append" => format!("INSERT INTO {} SELECT * FROM {}", qualified, csv_expr),
-        "replace" => format!("CREATE OR REPLACE TABLE {} AS SELECT * FROM {}", qualified, csv_expr),
-        _ => format!("CREATE TABLE {} AS SELECT * FROM {}", qualified, csv_expr),
+/// CSV/JSON インポート後処理の共通ヘルパー
+///
+/// テーブル作成 SQL の実行・タイムスタンプ記録・行数・列数取得を統一して行う。
+/// CSV ソース情報の記録は呼び出し元で行う（CSV 固有処理のため）。
+fn exec_import_common(conn: &Connection, params: ImportParams) -> Result<TableInfo, String> {
+    let qualified = sql_util::qualified(params.schema_name, params.table_name);
+
+    let sql = match params.if_exists {
+        "append" => format!("INSERT INTO {} SELECT * FROM {}", qualified, params.read_sql),
+        "replace" => format!("CREATE OR REPLACE TABLE {} AS SELECT * FROM {}", qualified, params.read_sql),
+        _ => format!("CREATE TABLE {} AS SELECT * FROM {}", qualified, params.read_sql),
     };
 
     conn.execute(&sql, []).map_err(|e| e.to_string())?;
+
+    // タイムスタンプ記録（append 以外）
+    if params.if_exists != "append" {
+        let is_new = params.if_exists != "replace";
+        let _ = exec_touch_table_timestamp(conn, params.schema_name, params.table_name, "adhoc", is_new);
+    }
+
+    let row_count: i64 = conn
+        .query_row(&format!("SELECT COUNT(*) FROM {}", qualified), [], |r| r.get(0))
+        .unwrap_or(0);
+    let column_count: i64 = conn
+        .query_row(
+            &format!(
+                "SELECT COUNT(*) FROM duckdb_columns() WHERE schema_name = {} AND table_name = {}",
+                sql_util::literal(params.schema_name),
+                sql_util::literal(params.table_name)
+            ),
+            [],
+            |r| r.get(0),
+        )
+        .unwrap_or(0);
+
+    Ok(TableInfo {
+        name: params.table_name.to_string(),
+        schema_name: params.schema_name.to_string(),
+        row_count,
+        column_count,
+        csv_source_path: params.csv_source_path,
+        table_type: "table".to_string(),
+    })
+}
+
+fn exec_import_csv(conn: &Connection, opts: &CsvImportOptions) -> Result<TableInfo, String> {
+    let csv_expr = file_io::csv::build_read_expr(opts);
 
     // Save CSV source info for re-import (not for append, where the source mapping is ambiguous)
     if opts.if_exists != "append" {
@@ -565,33 +613,14 @@ fn exec_import_csv(conn: &Connection, opts: &CsvImportOptions) -> Result<TableIn
             if opts.has_header { "true" } else { "false" },
         );
         let _ = conn.execute(&upsert, []);
-        // CSV import時にタイムスタンプを記録（replace = 新規扱いで created_at をリセット）
-        let is_new = opts.if_exists != "replace";
-        let _ = exec_touch_table_timestamp(conn, &opts.schema_name, &opts.table_name, "adhoc", is_new);
     }
 
-    let row_count: i64 = conn
-        .query_row(&format!("SELECT COUNT(*) FROM {}", qualified), [], |r| r.get(0))
-        .unwrap_or(0);
-    let column_count: i64 = conn
-        .query_row(
-            &format!(
-                "SELECT COUNT(*) FROM duckdb_columns() WHERE schema_name = {} AND table_name = {}",
-                sql_util::literal(&opts.schema_name),
-                sql_util::literal(&opts.table_name)
-            ),
-            [],
-            |r| r.get(0),
-        )
-        .unwrap_or(0);
-
-    Ok(TableInfo {
-        name: opts.table_name.clone(),
-        schema_name: opts.schema_name.clone(),
-        row_count,
-        column_count,
+    exec_import_common(conn, ImportParams {
+        schema_name: &opts.schema_name,
+        table_name: &opts.table_name,
+        read_sql: &csv_expr,
+        if_exists: &opts.if_exists,
         csv_source_path: Some(opts.file_path.clone()),
-        table_type: "table".to_string(),
     })
 }
 
@@ -785,39 +814,12 @@ fn exec_preview_json(conn: &Connection, opts: &JsonImportOptions) -> Result<Json
 
 fn exec_import_json(conn: &Connection, opts: &JsonImportOptions) -> Result<TableInfo, String> {
     let json_expr = file_io::json::build_read_expr(opts);
-    let qualified = sql_util::qualified(&opts.schema_name, &opts.table_name);
 
-    let sql = match opts.if_exists.as_str() {
-        "append" => format!("INSERT INTO {} SELECT * FROM {}", qualified, json_expr),
-        "replace" => format!("CREATE OR REPLACE TABLE {} AS SELECT * FROM {}", qualified, json_expr),
-        _ => format!("CREATE TABLE {} AS SELECT * FROM {}", qualified, json_expr),
-    };
-
-    conn.execute(&sql, []).map_err(|e| e.to_string())?;
-    let is_new = opts.if_exists != "replace";
-    let _ = exec_touch_table_timestamp(conn, &opts.schema_name, &opts.table_name, "adhoc", is_new);
-
-    let row_count: i64 = conn
-        .query_row(&format!("SELECT COUNT(*) FROM {}", qualified), [], |r| r.get(0))
-        .unwrap_or(0);
-    let column_count: i64 = conn
-        .query_row(
-            &format!(
-                "SELECT COUNT(*) FROM duckdb_columns() WHERE schema_name = {} AND table_name = {}",
-                sql_util::literal(&opts.schema_name),
-                sql_util::literal(&opts.table_name)
-            ),
-            [],
-            |r| r.get(0),
-        )
-        .unwrap_or(0);
-
-    Ok(TableInfo {
-        name: opts.table_name.clone(),
-        schema_name: opts.schema_name.clone(),
-        row_count,
-        column_count,
+    exec_import_common(conn, ImportParams {
+        schema_name: &opts.schema_name,
+        table_name: &opts.table_name,
+        read_sql: &json_expr,
+        if_exists: &opts.if_exists,
         csv_source_path: None,
-        table_type: "table".to_string(),
     })
 }
