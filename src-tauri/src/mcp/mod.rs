@@ -12,6 +12,7 @@ use serde_json::{json, Value};
 use tauri::Emitter;
 
 use crate::db::worker::DbWorker;
+use crate::utils;
 
 /// Shared lock: true while an MCP tool call is in progress.
 /// Tauri commands check this and reject requests when true.
@@ -50,7 +51,6 @@ impl McpServerHandle {
 struct McpServerState {
     db: DbWorker,
     active: Arc<AtomicBool>,
-    home_dir: String,
     app_handle: tauri::AppHandle,
     log_path: std::path::PathBuf,
 }
@@ -83,7 +83,6 @@ pub async fn run_mcp_server(
     let state = McpServerState {
         db,
         active,
-        home_dir,
         app_handle: app_handle.clone(),
         log_path: log_path.clone(),
     };
@@ -162,7 +161,7 @@ async fn mcp_handler(
     };
 
     let response =
-        handle_request(&req, &state.db, &state.active, &state.home_dir, &state.app_handle, &state.log_path).await;
+        handle_request(&req, &state.db, &state.active, &state.app_handle, &state.log_path).await;
 
     match response {
         Some(resp) => (StatusCode::OK, Json(resp)),
@@ -179,7 +178,6 @@ async fn handle_request(
     req: &Value,
     db: &DbWorker,
     active: &Arc<AtomicBool>,
-    home_dir: &str,
     app_handle: &tauri::AppHandle,
     log_path: &std::path::Path,
 ) -> Option<Value> {
@@ -294,7 +292,7 @@ async fn handle_request(
             write_log(log_path, &format!("CALL  {} args={}", tool_name, args));
             let start = std::time::Instant::now();
 
-            let result = call_tool(tool_name, &args, db, home_dir).await;
+            let result = call_tool(tool_name, &args, db).await;
             let elapsed_ms = start.elapsed().as_millis();
 
             active.store(false, Ordering::SeqCst);
@@ -341,7 +339,6 @@ async fn call_tool(
     name: &str,
     args: &Value,
     db: &DbWorker,
-    home_dir: &str,
 ) -> Result<String, String> {
     match name {
         "echo" => {
@@ -368,10 +365,10 @@ async fn call_tool(
                 .unwrap_or(false);
             let mut tables = db.list_tables().await?;
             if include_dbt {
-                let dbt_path = format!("{}/.tdwh/db/dbt.db", home_dir);
-                match db.list_dbt_tables(dbt_path).await {
-                    Ok(dbt_tables) => tables.extend(dbt_tables),
-                    Err(_) => {} // dbt.db may not exist yet
+                let dbt_path = utils::dbt_db_path().to_str().unwrap_or("").to_string();
+                // dbt.db may not exist yet — ignore errors
+                if let Ok(dbt_tables) = db.list_dbt_tables(dbt_path).await {
+                    tables.extend(dbt_tables);
                 }
             }
             serde_json::to_string(&tables).map_err(|e| e.to_string())
@@ -391,7 +388,7 @@ async fn call_tool(
                 .and_then(|v| v.as_str())
                 .unwrap_or("main");
             let schema = if database == "dbt" {
-                let dbt_path = format!("{}/.tdwh/db/dbt.db", home_dir);
+                let dbt_path = utils::dbt_db_path().to_str().unwrap_or("").to_string();
                 db.get_dbt_schema(dbt_path, schema_name.to_string(), table_name.to_string()).await?
             } else {
                 db.get_schema(schema_name.to_string(), table_name.to_string()).await?
@@ -428,11 +425,7 @@ async fn call_tool(
                 .and_then(|v| v.as_str())
                 .ok_or("Missing argument: filename")?;
 
-            let resolved_dir = if export_dir.starts_with("~/") {
-                std::path::PathBuf::from(home_dir).join(&export_dir[2..])
-            } else {
-                std::path::PathBuf::from(export_dir)
-            };
+            let resolved_dir = std::path::PathBuf::from(utils::expand_home_path(export_dir));
 
             std::fs::create_dir_all(&resolved_dir).map_err(|e| e.to_string())?;
             let out_path = resolved_dir.join(filename);
@@ -483,7 +476,7 @@ fn epoch_to_datetime(secs: u64) -> (u64, u64, u64, u64, u64, u64) {
     let mut y = 1970u64;
     let mut remaining = days;
     loop {
-        let leap = (y % 4 == 0 && y % 100 != 0) || y % 400 == 0;
+        let leap = (y.is_multiple_of(4) && !y.is_multiple_of(100)) || y.is_multiple_of(400);
         let dy = if leap { 366 } else { 365 };
         if remaining < dy {
             break;
@@ -491,7 +484,7 @@ fn epoch_to_datetime(secs: u64) -> (u64, u64, u64, u64, u64, u64) {
         remaining -= dy;
         y += 1;
     }
-    let leap = (y % 4 == 0 && y % 100 != 0) || y % 400 == 0;
+    let leap = (y.is_multiple_of(4) && !y.is_multiple_of(100)) || y.is_multiple_of(400);
     let month_days: [u64; 12] = [
         31, if leap { 29 } else { 28 }, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31,
     ];

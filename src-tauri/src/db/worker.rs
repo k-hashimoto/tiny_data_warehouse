@@ -654,23 +654,14 @@ fn exec_drop_dbt_schema(dbt_path: &str, schema_name: &str) -> Result<(), String>
 
 fn exec_touch_table_timestamp(conn: &Connection, schema_name: &str, table_name: &str, source: &str, is_new: bool) -> Result<(), String> {
     let now_sql = "strftime(now()::TIMESTAMP, '%Y-%m-%dT%H:%M:%SZ')";
-    let sql = if is_new {
-        format!(
-            "INSERT INTO _tdw.table_timestamps (schema_name, table_name, source, created_at, updated_at) \
-             VALUES ({}, {}, {}, {}, {}) \
-             ON CONFLICT (schema_name, table_name, source) DO UPDATE SET updated_at = {}",
-            sql_util::literal(schema_name), sql_util::literal(table_name), sql_util::literal(source),
-            now_sql, now_sql, now_sql
-        )
-    } else {
-        format!(
-            "INSERT INTO _tdw.table_timestamps (schema_name, table_name, source, created_at, updated_at) \
-             VALUES ({}, {}, {}, {}, {}) \
-             ON CONFLICT (schema_name, table_name, source) DO UPDATE SET updated_at = {}",
-            sql_util::literal(schema_name), sql_util::literal(table_name), sql_util::literal(source),
-            now_sql, now_sql, now_sql
-        )
-    };
+    let _ = is_new; // both branches produce identical SQL; field reserved for future use
+    let sql = format!(
+        "INSERT INTO _tdw.table_timestamps (schema_name, table_name, source, created_at, updated_at) \
+         VALUES ({}, {}, {}, {}, {}) \
+         ON CONFLICT (schema_name, table_name, source) DO UPDATE SET updated_at = {}",
+        sql_util::literal(schema_name), sql_util::literal(table_name), sql_util::literal(source),
+        now_sql, now_sql, now_sql
+    );
     conn.execute(&sql, []).map_err(|e| e.to_string())?;
     Ok(())
 }

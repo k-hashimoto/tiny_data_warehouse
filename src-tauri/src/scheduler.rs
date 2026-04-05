@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 /// The kind of job a scheduled task runs.
+#[allow(dead_code)]
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum JobKind {
@@ -13,6 +14,7 @@ pub enum JobKind {
 }
 
 /// A single scheduled job entry.
+#[allow(dead_code)]
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ScheduledJob {
     pub id: String,

@@ -1,6 +1,7 @@
-use tauri::{Manager, State};
+use tauri::State;
 use crate::db::worker::DbWorker;
 use crate::db::types::{TableInfo, SchemaResult, QueryResult};
+use crate::utils;
 
 #[tauri::command]
 pub async fn list_tables(db: State<'_, DbWorker>) -> Result<Vec<TableInfo>, String> {
@@ -22,14 +23,9 @@ pub async fn list_schemas(db: State<'_, DbWorker>) -> Result<Vec<String>, String
     db.list_schemas().await
 }
 
-fn dbt_db_path(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
-    let home = app.path().home_dir().map_err(|e| e.to_string())?;
-    Ok(home.join(".tdwh").join("db").join("dbt.db"))
-}
-
 #[tauri::command]
-pub async fn list_dbt_tables(app: tauri::AppHandle, db: State<'_, DbWorker>) -> Result<Vec<TableInfo>, String> {
-    let path = dbt_db_path(&app)?;
+pub async fn list_dbt_tables(db: State<'_, DbWorker>) -> Result<Vec<TableInfo>, String> {
+    let path = utils::dbt_db_path();
     if !path.exists() {
         return Ok(vec![]);
     }
@@ -38,13 +34,12 @@ pub async fn list_dbt_tables(app: tauri::AppHandle, db: State<'_, DbWorker>) -> 
 
 #[tauri::command]
 pub async fn preview_dbt_table(
-    app: tauri::AppHandle,
     db: State<'_, DbWorker>,
     schema_name: String,
     table_name: String,
     limit: Option<i64>,
 ) -> Result<QueryResult, String> {
-    let path = dbt_db_path(&app)?;
+    let path = utils::dbt_db_path();
     if !path.exists() {
         return Err("dbt.db not found".into());
     }
@@ -58,12 +53,11 @@ pub async fn preview_dbt_table(
 
 #[tauri::command]
 pub async fn get_dbt_schema(
-    app: tauri::AppHandle,
     db: State<'_, DbWorker>,
     schema_name: String,
     table_name: String,
 ) -> Result<SchemaResult, String> {
-    let path = dbt_db_path(&app)?;
+    let path = utils::dbt_db_path();
     if !path.exists() {
         return Err("dbt.db not found".into());
     }
@@ -72,12 +66,11 @@ pub async fn get_dbt_schema(
 
 #[tauri::command]
 pub async fn drop_dbt_table(
-    app: tauri::AppHandle,
     db: State<'_, DbWorker>,
     schema_name: String,
     table_name: String,
 ) -> Result<(), String> {
-    let path = dbt_db_path(&app)?;
+    let path = utils::dbt_db_path();
     if !path.exists() {
         return Err("dbt.db not found".into());
     }
@@ -86,11 +79,10 @@ pub async fn drop_dbt_table(
 
 #[tauri::command]
 pub async fn drop_dbt_schema(
-    app: tauri::AppHandle,
     db: State<'_, DbWorker>,
     schema_name: String,
 ) -> Result<(), String> {
-    let path = dbt_db_path(&app)?;
+    let path = utils::dbt_db_path();
     if !path.exists() {
         return Err("dbt.db not found".into());
     }
@@ -98,8 +90,8 @@ pub async fn drop_dbt_schema(
 }
 
 #[tauri::command]
-pub async fn attach_dbt(app: tauri::AppHandle, db: State<'_, DbWorker>) -> Result<(), String> {
-    let path = dbt_db_path(&app)?;
+pub async fn attach_dbt(db: State<'_, DbWorker>) -> Result<(), String> {
+    let path = utils::dbt_db_path();
     if !path.exists() {
         return Err("dbt.db not found".into());
     }

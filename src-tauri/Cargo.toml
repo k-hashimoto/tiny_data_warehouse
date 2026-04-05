@@ -29,4 +29,5 @@ anyhow = "1"
 notify = "6"
 tauri-plugin-dialog = "2.6.0"
 serde_yaml = "0.9"
+dirs = "5"
 
