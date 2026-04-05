@@ -90,10 +90,14 @@ PYEOF
 
     # バージョン変更をコミット＆プッシュ
     echo ""
-    echo "==> バージョン変更をコミット中..."
     git add src-tauri/tauri.conf.json src-tauri/Cargo.toml src-tauri/Cargo.lock
-    git commit -m "chore: bump version to ${TAG}"
-    git push
+    if git diff --cached --quiet; then
+        echo "==> バージョンは既に ${TAG} です。コミットをスキップします。"
+    else
+        echo "==> バージョン変更をコミット中..."
+        git commit -m "chore: bump version to ${TAG}"
+        git push
+    fi
     echo ""
     echo "次のステップ:"
     echo "  task build"
