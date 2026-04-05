@@ -10,10 +10,13 @@ use crate::file_io;
 use crate::scheduler::{JobType, ScheduledJob};
 
 pub enum WorkerCmd {
+    // === クエリ実行 ===
     Query {
         sql: String,
         tx: tokio::sync::oneshot::Sender<Result<QueryResult, String>>,
     },
+
+    // === スキーマ探索 ===
     ListTables {
         tx: tokio::sync::oneshot::Sender<Result<Vec<TableInfo>, String>>,
     },
@@ -21,14 +24,16 @@ pub enum WorkerCmd {
         dbt_path: String,
         tx: tokio::sync::oneshot::Sender<Result<Vec<TableInfo>, String>>,
     },
-    PreviewDbtTable {
-        dbt_path: String,
-        schema_name: String,
-        table_name: String,
-        limit: i64,
-        tx: tokio::sync::oneshot::Sender<Result<QueryResult, String>>,
+    ListSchemas {
+        tx: tokio::sync::oneshot::Sender<Result<Vec<String>, String>>,
     },
     GetSchema {
+        schema_name: String,
+        table_name: String,
+        tx: tokio::sync::oneshot::Sender<Result<SchemaResult, String>>,
+    },
+    GetDbtSchema {
+        dbt_path: String,
         schema_name: String,
         table_name: String,
         tx: tokio::sync::oneshot::Sender<Result<SchemaResult, String>>,
@@ -38,16 +43,12 @@ pub enum WorkerCmd {
         limit: i64,
         tx: tokio::sync::oneshot::Sender<Result<QueryResult, String>>,
     },
-    PreviewCsv {
-        opts: CsvImportOptions,
-        tx: tokio::sync::oneshot::Sender<Result<CsvPreviewResult, String>>,
-    },
-    ImportCsv {
-        opts: CsvImportOptions,
-        tx: tokio::sync::oneshot::Sender<Result<TableInfo, String>>,
-    },
-    ListSchemas {
-        tx: tokio::sync::oneshot::Sender<Result<Vec<String>, String>>,
+    PreviewDbtTable {
+        dbt_path: String,
+        schema_name: String,
+        table_name: String,
+        limit: i64,
+        tx: tokio::sync::oneshot::Sender<Result<QueryResult, String>>,
     },
     AttachDbt {
         dbt_path: String,
@@ -55,12 +56,6 @@ pub enum WorkerCmd {
     },
     DetachDbt {
         tx: tokio::sync::oneshot::Sender<Result<(), String>>,
-    },
-    GetDbtSchema {
-        dbt_path: String,
-        schema_name: String,
-        table_name: String,
-        tx: tokio::sync::oneshot::Sender<Result<SchemaResult, String>>,
     },
     DropDbtTable {
         dbt_path: String,
@@ -73,6 +68,31 @@ pub enum WorkerCmd {
         schema_name: String,
         tx: tokio::sync::oneshot::Sender<Result<(), String>>,
     },
+
+    // === データインポート ===
+    PreviewCsv {
+        opts: CsvImportOptions,
+        tx: tokio::sync::oneshot::Sender<Result<CsvPreviewResult, String>>,
+    },
+    ImportCsv {
+        opts: CsvImportOptions,
+        tx: tokio::sync::oneshot::Sender<Result<TableInfo, String>>,
+    },
+    ReimportCsv {
+        schema_name: String,
+        table_name: String,
+        tx: tokio::sync::oneshot::Sender<Result<TableInfo, String>>,
+    },
+    PreviewJson {
+        opts: JsonImportOptions,
+        tx: tokio::sync::oneshot::Sender<Result<JsonPreviewResult, String>>,
+    },
+    ImportJson {
+        opts: JsonImportOptions,
+        tx: tokio::sync::oneshot::Sender<Result<TableInfo, String>>,
+    },
+
+    // === メタデータ管理 ===
     GetTableMeta {
         schema_name: String,
         table_name: String,
@@ -97,19 +117,6 @@ pub enum WorkerCmd {
         comment: String,
         tx: tokio::sync::oneshot::Sender<Result<(), String>>,
     },
-    ReimportCsv {
-        schema_name: String,
-        table_name: String,
-        tx: tokio::sync::oneshot::Sender<Result<TableInfo, String>>,
-    },
-    PreviewJson {
-        opts: JsonImportOptions,
-        tx: tokio::sync::oneshot::Sender<Result<JsonPreviewResult, String>>,
-    },
-    ImportJson {
-        opts: JsonImportOptions,
-        tx: tokio::sync::oneshot::Sender<Result<TableInfo, String>>,
-    },
     TouchTableTimestamp {
         schema_name: String,
         table_name: String,
@@ -121,6 +128,8 @@ pub enum WorkerCmd {
         tables: Vec<(String, String)>, // (schema_name, table_name)
         tx: tokio::sync::oneshot::Sender<Result<(), String>>,
     },
+
+    // === スケジューラ ===
     ListScheduledJobs {
         tx: tokio::sync::oneshot::Sender<Result<Vec<ScheduledJob>, String>>,
     },
@@ -188,33 +197,33 @@ impl DbWorker {
 
             for cmd in rx {
                 match cmd {
+                    // === クエリ実行 ===
                     WorkerCmd::Query { sql, tx } => {
                         let _ = tx.send(exec_query(&conn, &sql).map_err(|e| e.to_string()));
                     }
+
+                    // === スキーマ探索 ===
                     WorkerCmd::ListTables { tx } => {
                         let _ = tx.send(exec_list_tables(&conn).map_err(|e| e.to_string()));
                     }
                     WorkerCmd::ListDbtTables { dbt_path, tx } => {
                         let _ = tx.send(exec_list_dbt_tables(&dbt_path).map_err(|e| e.to_string()));
                     }
-                    WorkerCmd::PreviewDbtTable { dbt_path, schema_name, table_name, limit, tx } => {
-                        let _ = tx.send(exec_preview_dbt_table(&dbt_path, &schema_name, &table_name, limit).map_err(|e| e.to_string()));
+                    WorkerCmd::ListSchemas { tx } => {
+                        let _ = tx.send(exec_list_schemas(&conn).map_err(|e| e.to_string()));
                     }
                     WorkerCmd::GetSchema { schema_name, table_name, tx } => {
                         let _ = tx.send(exec_get_schema(&conn, &schema_name, &table_name).map_err(|e| e.to_string()));
+                    }
+                    WorkerCmd::GetDbtSchema { dbt_path, schema_name, table_name, tx } => {
+                        let _ = tx.send(exec_get_dbt_schema(&dbt_path, &schema_name, &table_name).map_err(|e| e.to_string()));
                     }
                     WorkerCmd::PreviewTable { table_name, limit, tx } => {
                         let sql = format!("SELECT * FROM {} LIMIT {}", sql_util::ident(&table_name), limit);
                         let _ = tx.send(exec_query(&conn, &sql).map_err(|e| e.to_string()));
                     }
-                    WorkerCmd::PreviewCsv { opts, tx } => {
-                        let _ = tx.send(exec_preview_csv(&conn, &opts).map_err(|e| e.to_string()));
-                    }
-                    WorkerCmd::ImportCsv { opts, tx } => {
-                        let _ = tx.send(exec_import_csv(&conn, &opts).map_err(|e| e.to_string()));
-                    }
-                    WorkerCmd::ListSchemas { tx } => {
-                        let _ = tx.send(exec_list_schemas(&conn).map_err(|e| e.to_string()));
+                    WorkerCmd::PreviewDbtTable { dbt_path, schema_name, table_name, limit, tx } => {
+                        let _ = tx.send(exec_preview_dbt_table(&dbt_path, &schema_name, &table_name, limit).map_err(|e| e.to_string()));
                     }
                     WorkerCmd::AttachDbt { dbt_path, tx } => {
                         let _ = tx.send(exec_attach_dbt(&conn, &dbt_path).map_err(|e| e.to_string()));
@@ -222,15 +231,31 @@ impl DbWorker {
                     WorkerCmd::DetachDbt { tx } => {
                         let _ = tx.send(exec_detach_dbt(&conn).map_err(|e| e.to_string()));
                     }
-                    WorkerCmd::GetDbtSchema { dbt_path, schema_name, table_name, tx } => {
-                        let _ = tx.send(exec_get_dbt_schema(&dbt_path, &schema_name, &table_name).map_err(|e| e.to_string()));
-                    }
                     WorkerCmd::DropDbtTable { dbt_path, schema_name, table_name, tx } => {
                         let _ = tx.send(exec_drop_dbt_table(&dbt_path, &schema_name, &table_name).map_err(|e| e.to_string()));
                     }
                     WorkerCmd::DropDbtSchema { dbt_path, schema_name, tx } => {
                         let _ = tx.send(exec_drop_dbt_schema(&dbt_path, &schema_name).map_err(|e| e.to_string()));
                     }
+
+                    // === データインポート ===
+                    WorkerCmd::PreviewCsv { opts, tx } => {
+                        let _ = tx.send(exec_preview_csv(&conn, &opts).map_err(|e| e.to_string()));
+                    }
+                    WorkerCmd::ImportCsv { opts, tx } => {
+                        let _ = tx.send(exec_import_csv(&conn, &opts).map_err(|e| e.to_string()));
+                    }
+                    WorkerCmd::ReimportCsv { schema_name, table_name, tx } => {
+                        let _ = tx.send(exec_reimport_csv(&conn, &schema_name, &table_name).map_err(|e| e.to_string()));
+                    }
+                    WorkerCmd::PreviewJson { opts, tx } => {
+                        let _ = tx.send(exec_preview_json(&conn, &opts).map_err(|e| e.to_string()));
+                    }
+                    WorkerCmd::ImportJson { opts, tx } => {
+                        let _ = tx.send(exec_import_json(&conn, &opts).map_err(|e| e.to_string()));
+                    }
+
+                    // === メタデータ管理 ===
                     WorkerCmd::GetTableMeta { schema_name, table_name, tx } => {
                         let _ = tx.send(exec_get_table_meta(&conn, &schema_name, &table_name).map_err(|e| e.to_string()));
                     }
@@ -243,9 +268,6 @@ impl DbWorker {
                     WorkerCmd::SetColumnComment { schema_name, table_name, column_name, comment, tx } => {
                         let _ = tx.send(exec_set_column_comment(&conn, &schema_name, &table_name, &column_name, &comment).map_err(|e| e.to_string()));
                     }
-                    WorkerCmd::ReimportCsv { schema_name, table_name, tx } => {
-                        let _ = tx.send(exec_reimport_csv(&conn, &schema_name, &table_name).map_err(|e| e.to_string()));
-                    }
                     WorkerCmd::TouchTableTimestamp { schema_name, table_name, source, is_new, tx } => {
                         let _ = tx.send(exec_touch_table_timestamp(&conn, &schema_name, &table_name, &source, is_new).map_err(|e| e.to_string()));
                     }
@@ -255,12 +277,8 @@ impl DbWorker {
                         });
                         let _ = tx.send(result.map_err(|e| e.to_string()));
                     }
-                    WorkerCmd::PreviewJson { opts, tx } => {
-                        let _ = tx.send(exec_preview_json(&conn, &opts).map_err(|e| e.to_string()));
-                    }
-                    WorkerCmd::ImportJson { opts, tx } => {
-                        let _ = tx.send(exec_import_json(&conn, &opts).map_err(|e| e.to_string()));
-                    }
+
+                    // === スケジューラ ===
                     WorkerCmd::ListScheduledJobs { tx } => {
                         let _ = tx.send(exec_list_scheduled_jobs(&conn).map_err(|e| e.to_string()));
                     }
