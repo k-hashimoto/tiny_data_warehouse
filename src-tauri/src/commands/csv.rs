@@ -1,31 +1,25 @@
-use std::sync::atomic::Ordering;
 use tauri::State;
 use crate::db::worker::DbWorker;
 use crate::db::types::{CsvImportOptions, CsvPreviewResult, TableInfo};
 use crate::mcp::McpLock;
 use crate::utils;
+use crate::commands::ensure_not_mcp_locked;
 
 #[tauri::command]
 pub async fn reimport_csv(schema_name: String, table_name: String, db: State<'_, DbWorker>, lock: State<'_, McpLock>) -> Result<TableInfo, String> {
-    if lock.0.load(Ordering::SeqCst) {
-        return Err("AI操作中です。しばらくお待ちください。".into());
-    }
+    ensure_not_mcp_locked(&lock)?;
     db.reimport_csv(schema_name, table_name).await
 }
 
 #[tauri::command]
 pub async fn preview_csv(opts: CsvImportOptions, db: State<'_, DbWorker>, lock: State<'_, McpLock>) -> Result<CsvPreviewResult, String> {
-    if lock.0.load(Ordering::SeqCst) {
-        return Err("AI操作中です。しばらくお待ちください。".into());
-    }
+    ensure_not_mcp_locked(&lock)?;
     db.preview_csv(opts).await
 }
 
 #[tauri::command]
 pub async fn import_csv(opts: CsvImportOptions, db: State<'_, DbWorker>, lock: State<'_, McpLock>) -> Result<TableInfo, String> {
-    if lock.0.load(Ordering::SeqCst) {
-        return Err("AI操作中です。しばらくお待ちください。".into());
-    }
+    ensure_not_mcp_locked(&lock)?;
     db.import_csv(opts).await
 }
 
@@ -44,9 +38,7 @@ pub async fn export_query_csv(
     db: State<'_, DbWorker>,
     lock: State<'_, McpLock>,
 ) -> Result<String, String> {
-    if lock.0.load(Ordering::SeqCst) {
-        return Err("AI操作中です。しばらくお待ちください。".into());
-    }
+    ensure_not_mcp_locked(&lock)?;
     // Resolve ~ to home directory
     let resolved_dir = std::path::PathBuf::from(utils::expand_home_path(&export_dir));
 
