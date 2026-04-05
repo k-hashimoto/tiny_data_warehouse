@@ -653,7 +653,7 @@ fn exec_drop_dbt_schema(dbt_path: &str, schema_name: &str) -> Result<(), String>
 }
 
 fn exec_touch_table_timestamp(conn: &Connection, schema_name: &str, table_name: &str, source: &str, is_new: bool) -> Result<(), String> {
-    let now_sql = "strftime(now(), '%Y-%m-%dT%H:%M:%SZ')";
+    let now_sql = "strftime(now()::TIMESTAMP, '%Y-%m-%dT%H:%M:%SZ')";
     let sql = if is_new {
         format!(
             "INSERT INTO _tdw.table_timestamps (schema_name, table_name, source, created_at, updated_at) \

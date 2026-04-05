@@ -60,6 +60,24 @@ tasks:
         echo "  2e. task release:upload    # upload binary to GitHub Release"
         echo ""
 
+  test:
+    desc: Run all backend tests
+    dir: src-tauri
+    cmds:
+      - cargo test
+
+  test:db-worker:
+    desc: Run DbWorker integration tests only
+    dir: src-tauri
+    cmds:
+      - cargo test --test db_worker
+
+  test:db-worker:all:
+    desc: Run DbWorker integration tests including ignored tests
+    dir: src-tauri
+    cmds:
+      - cargo test --test db_worker -- --include-ignored
+
   mcp_log:
     cmds:
       - tail -f  ~/.tdwh/logs/mcp_access.log

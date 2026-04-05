@@ -87,6 +87,13 @@ PYEOF
 
     echo "    tauri.conf.json: version = ${TAG}"
     echo "    src-tauri/Cargo.toml: version = ${TAG}"
+
+    # バージョン変更をコミット＆プッシュ
+    echo ""
+    echo "==> バージョン変更をコミット中..."
+    git add src-tauri/tauri.conf.json src-tauri/Cargo.toml src-tauri/Cargo.lock
+    git commit -m "chore: bump version to ${TAG}"
+    git push
     echo ""
     echo "次のステップ:"
     echo "  task build"
