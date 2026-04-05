@@ -1,13 +1,11 @@
-use std::sync::atomic::Ordering;
 use tauri::State;
 use crate::db::worker::DbWorker;
 use crate::db::types::QueryResult;
 use crate::mcp::McpLock;
+use crate::commands::ensure_not_mcp_locked;
 
 #[tauri::command]
 pub async fn run_query(sql: String, db: State<'_, DbWorker>, lock: State<'_, McpLock>) -> Result<QueryResult, String> {
-    if lock.0.load(Ordering::SeqCst) {
-        return Err("AI操作中です。しばらくお待ちください。".into());
-    }
+    ensure_not_mcp_locked(&lock)?;
     db.query(sql).await
 }
