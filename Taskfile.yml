@@ -90,3 +90,8 @@ tasks:
       - rm -rf src-tauri/target/
       - rm -rf dist/
       - rm -rf node_modules/
+
+  change_base_branch:
+    desc: Change PR base bnrach(need PR_ID)
+    cmds:
+      - gh pr edit {{.PR_ID}} --base staging
