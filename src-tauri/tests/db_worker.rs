@@ -1,5 +1,6 @@
 use tiny_data_ware_house_lib::db::types::{CsvImportOptions, JsonImportOptions};
 use tiny_data_ware_house_lib::db::worker::DbWorker;
+use tiny_data_ware_house_lib::scheduler::{JobType, ScheduledJob};
 
 fn test_worker() -> DbWorker {
     DbWorker::new(":memory:", "")
@@ -360,5 +361,96 @@ mod dbt {
     async fn test_get_dbt_table_meta() {
         let _worker = test_worker();
         todo!("dbt DB fixture が用意できたら実装する");
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Scheduled Jobs
+// ---------------------------------------------------------------------------
+
+mod scheduled_jobs {
+    use super::*;
+
+    fn make_job(id: &str, name: &str) -> ScheduledJob {
+        ScheduledJob {
+            id: id.to_string(),
+            name: name.to_string(),
+            job_type: JobType::Query,
+            target_id: "scripts/my_query.sql".to_string(),
+            cron_expr: "0 * * * *".to_string(),
+            enabled: true,
+            created_at: "2026-01-01 00:00:00".to_string(),
+            last_run_at: None,
+        }
+    }
+
+    // 初期状態では scheduled_jobs が空であることを確認する
+    #[tokio::test]
+    async fn test_list_scheduled_jobs_initially_empty() {
+        let worker = test_worker();
+        let jobs = worker.list_scheduled_jobs().await.unwrap();
+        assert!(jobs.is_empty());
+    }
+
+    // ジョブを保存すると list で取得できることを確認する
+    #[tokio::test]
+    async fn test_save_and_list_scheduled_job() {
+        let worker = test_worker();
+        let job = make_job("job-001", "Daily Query");
+        worker.save_scheduled_job(job.clone()).await.unwrap();
+
+        let jobs = worker.list_scheduled_jobs().await.unwrap();
+        assert_eq!(jobs.len(), 1);
+        assert_eq!(jobs[0].id, "job-001");
+        assert_eq!(jobs[0].name, "Daily Query");
+        assert_eq!(jobs[0].cron_expr, "0 * * * *");
+        assert!(jobs[0].enabled);
+    }
+
+    // 同じ id で保存すると upsert されることを確認する
+    #[tokio::test]
+    async fn test_save_scheduled_job_upsert() {
+        let worker = test_worker();
+        let job = make_job("job-002", "Original Name");
+        worker.save_scheduled_job(job).await.unwrap();
+
+        let updated = ScheduledJob {
+            id: "job-002".to_string(),
+            name: "Updated Name".to_string(),
+            job_type: JobType::Import,
+            target_id: "my_table".to_string(),
+            cron_expr: "30 6 * * *".to_string(),
+            enabled: false,
+            created_at: "2026-01-01 00:00:00".to_string(),
+            last_run_at: Some("2026-01-02 06:30:00".to_string()),
+        };
+        worker.save_scheduled_job(updated).await.unwrap();
+
+        let jobs = worker.list_scheduled_jobs().await.unwrap();
+        assert_eq!(jobs.len(), 1);
+        assert_eq!(jobs[0].name, "Updated Name");
+        assert!(!jobs[0].enabled);
+    }
+
+    // ジョブを削除すると list から消えることを確認する
+    #[tokio::test]
+    async fn test_delete_scheduled_job() {
+        let worker = test_worker();
+        worker.save_scheduled_job(make_job("job-003", "A")).await.unwrap();
+        worker.save_scheduled_job(make_job("job-004", "B")).await.unwrap();
+
+        worker.delete_scheduled_job("job-003".to_string()).await.unwrap();
+
+        let jobs = worker.list_scheduled_jobs().await.unwrap();
+        assert_eq!(jobs.len(), 1);
+        assert_eq!(jobs[0].id, "job-004");
+    }
+
+    // 存在しない id を削除してもエラーにならないことを確認する
+    #[tokio::test]
+    async fn test_delete_nonexistent_job_is_ok() {
+        let worker = test_worker();
+        let result = worker.delete_scheduled_job("nonexistent".to_string()).await;
+        assert!(result.is_ok());
     }
 }

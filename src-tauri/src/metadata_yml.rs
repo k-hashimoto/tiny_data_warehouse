@@ -54,7 +54,7 @@ pub fn read_all_ymls(home: &Path) -> Vec<TableMetaYml> {
 
     let Ok(schemas) = std::fs::read_dir(&base) else { return results; };
     for schema_entry in schemas.flatten() {
-        if !schema_entry.file_type().map_or(false, |t| t.is_dir()) { continue; }
+        if !schema_entry.file_type().is_ok_and(|t| t.is_dir()) { continue; }
         let Ok(tables) = std::fs::read_dir(schema_entry.path()) else { continue; };
         for table_entry in tables.flatten() {
             let path = table_entry.path();

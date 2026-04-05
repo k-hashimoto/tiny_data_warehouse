@@ -1,10 +1,12 @@
 mod commands;
 mod config;
 pub mod db;
+pub mod error;
 mod file_io;
 mod metadata_yml;
 mod mcp;
-mod scheduler;
+pub mod scheduler;
+mod utils;
 
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
@@ -43,6 +45,7 @@ async fn restart_mcp_server(
     Ok(())
 }
 
+#[allow(dead_code)]
 struct FileWatcher(notify::RecommendedWatcher);
 unsafe impl Send for FileWatcher {}
 unsafe impl Sync for FileWatcher {}
@@ -190,6 +193,9 @@ pub fn run() {
             commands::macros::read_macro,
             commands::macros::save_macro,
             commands::macros::reload_macros,
+            commands::scheduled_jobs::list_scheduled_jobs,
+            commands::scheduled_jobs::save_scheduled_job,
+            commands::scheduled_jobs::delete_scheduled_job,
             get_mcp_server_status,
             stop_mcp_server,
             restart_mcp_server,
