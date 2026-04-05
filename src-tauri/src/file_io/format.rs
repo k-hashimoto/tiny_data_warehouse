@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 
+#[allow(dead_code)]
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum FileFormat {
@@ -10,6 +11,7 @@ pub enum FileFormat {
 
 impl FileFormat {
     /// Returns the file extensions associated with this format.
+    #[allow(dead_code)]
     pub fn extensions(&self) -> &[&str] {
         match self {
             FileFormat::Csv => &["csv", "tsv", "txt"],

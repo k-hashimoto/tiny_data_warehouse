@@ -1,8 +1,9 @@
 use std::sync::atomic::Ordering;
-use tauri::{Manager, State};
+use tauri::State;
 use crate::db::worker::DbWorker;
 use crate::db::types::{CsvImportOptions, CsvPreviewResult, TableInfo};
 use crate::mcp::McpLock;
+use crate::utils;
 
 #[tauri::command]
 pub async fn reimport_csv(schema_name: String, table_name: String, db: State<'_, DbWorker>, lock: State<'_, McpLock>) -> Result<TableInfo, String> {
@@ -37,7 +38,6 @@ pub async fn export_csv(path: String, content: String) -> Result<(), String> {
 /// Returns the full path of the saved file.
 #[tauri::command]
 pub async fn export_query_csv(
-    app: tauri::AppHandle,
     sql: String,
     export_dir: String,
     filename: String,
@@ -48,12 +48,7 @@ pub async fn export_query_csv(
         return Err("AI操作中です。しばらくお待ちください。".into());
     }
     // Resolve ~ to home directory
-    let resolved_dir = if export_dir.starts_with("~/") {
-        let home = app.path().home_dir().map_err(|e| e.to_string())?;
-        home.join(&export_dir[2..])
-    } else {
-        std::path::PathBuf::from(&export_dir)
-    };
+    let resolved_dir = std::path::PathBuf::from(utils::expand_home_path(&export_dir));
 
     std::fs::create_dir_all(&resolved_dir).map_err(|e| e.to_string())?;
 

@@ -3,11 +3,7 @@ use tauri::{Manager, State};
 use crate::db::worker::DbWorker;
 use crate::db::types::TableMeta;
 use crate::metadata_yml;
-
-fn dbt_db_path(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
-    let home = app.path().home_dir().map_err(|e| e.to_string())?;
-    Ok(home.join(".tdwh").join("db").join("dbt.db"))
-}
+use crate::utils;
 
 #[tauri::command]
 pub async fn get_table_meta(
@@ -20,12 +16,11 @@ pub async fn get_table_meta(
 
 #[tauri::command]
 pub async fn get_dbt_table_meta(
-    app: tauri::AppHandle,
     schema_name: String,
     table_name: String,
     db: State<'_, DbWorker>,
 ) -> Result<TableMeta, String> {
-    let path = dbt_db_path(&app)?;
+    let path = utils::dbt_db_path();
     if !path.exists() {
         return Err("dbt.db not found".into());
     }
