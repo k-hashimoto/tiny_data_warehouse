@@ -7,6 +7,7 @@ use crate::db::sql_util;
 use crate::db::types::{QueryResult, TableInfo, SchemaResult, ColumnInfo, CsvImportOptions, CsvPreviewResult, JsonImportOptions, JsonPreviewResult, TableMeta, ColumnMeta};
 use crate::error::AppError;
 use crate::file_io;
+use crate::scheduler::{JobType, ScheduledJob};
 
 pub enum WorkerCmd {
     Query {
@@ -120,6 +121,17 @@ pub enum WorkerCmd {
         tables: Vec<(String, String)>, // (schema_name, table_name)
         tx: tokio::sync::oneshot::Sender<Result<(), String>>,
     },
+    ListScheduledJobs {
+        tx: tokio::sync::oneshot::Sender<Result<Vec<ScheduledJob>, String>>,
+    },
+    SaveScheduledJob {
+        job: ScheduledJob,
+        tx: tokio::sync::oneshot::Sender<Result<(), String>>,
+    },
+    DeleteScheduledJob {
+        id: String,
+        tx: tokio::sync::oneshot::Sender<Result<(), String>>,
+    },
 }
 
 /// DuckDB をシングルスレッドで動かすアクター
@@ -161,6 +173,16 @@ impl DbWorker {
                      created_at  VARCHAR NOT NULL,
                      updated_at  VARCHAR NOT NULL,
                      PRIMARY KEY (schema_name, table_name, source)
+                 );
+                 CREATE TABLE IF NOT EXISTS _tdw.scheduled_jobs (
+                     id         VARCHAR PRIMARY KEY,
+                     name       VARCHAR NOT NULL,
+                     job_type   VARCHAR NOT NULL,
+                     target_id  VARCHAR NOT NULL,
+                     cron_expr  VARCHAR NOT NULL,
+                     enabled    BOOLEAN DEFAULT TRUE,
+                     created_at TIMESTAMP DEFAULT now(),
+                     last_run_at TIMESTAMP
                  );"
             );
 
@@ -238,6 +260,15 @@ impl DbWorker {
                     }
                     WorkerCmd::ImportJson { opts, tx } => {
                         let _ = tx.send(exec_import_json(&conn, &opts).map_err(|e| e.to_string()));
+                    }
+                    WorkerCmd::ListScheduledJobs { tx } => {
+                        let _ = tx.send(exec_list_scheduled_jobs(&conn).map_err(|e| e.to_string()));
+                    }
+                    WorkerCmd::SaveScheduledJob { job, tx } => {
+                        let _ = tx.send(exec_save_scheduled_job(&conn, &job).map_err(|e| e.to_string()));
+                    }
+                    WorkerCmd::DeleteScheduledJob { id, tx } => {
+                        let _ = tx.send(exec_delete_scheduled_job(&conn, &id).map_err(|e| e.to_string()));
                     }
                 }
             }
@@ -381,6 +412,24 @@ impl DbWorker {
     pub async fn import_json(&self, opts: JsonImportOptions) -> Result<TableInfo, String> {
         let (resp_tx, resp_rx) = tokio::sync::oneshot::channel();
         self.tx.send(WorkerCmd::ImportJson { opts, tx: resp_tx }).map_err(|e| e.to_string())?;
+        resp_rx.await.map_err(|e| e.to_string())?
+    }
+
+    pub async fn list_scheduled_jobs(&self) -> Result<Vec<ScheduledJob>, String> {
+        let (resp_tx, resp_rx) = tokio::sync::oneshot::channel();
+        self.tx.send(WorkerCmd::ListScheduledJobs { tx: resp_tx }).map_err(|e| e.to_string())?;
+        resp_rx.await.map_err(|e| e.to_string())?
+    }
+
+    pub async fn save_scheduled_job(&self, job: ScheduledJob) -> Result<(), String> {
+        let (resp_tx, resp_rx) = tokio::sync::oneshot::channel();
+        self.tx.send(WorkerCmd::SaveScheduledJob { job, tx: resp_tx }).map_err(|e| e.to_string())?;
+        resp_rx.await.map_err(|e| e.to_string())?
+    }
+
+    pub async fn delete_scheduled_job(&self, id: String) -> Result<(), String> {
+        let (resp_tx, resp_rx) = tokio::sync::oneshot::channel();
+        self.tx.send(WorkerCmd::DeleteScheduledJob { id, tx: resp_tx }).map_err(|e| e.to_string())?;
         resp_rx.await.map_err(|e| e.to_string())?
     }
 }
@@ -818,4 +867,49 @@ fn exec_import_json(conn: &Connection, opts: &JsonImportOptions) -> Result<Table
         if_exists: &opts.if_exists,
         csv_source_path: None,
     })
+}
+
+fn exec_list_scheduled_jobs(conn: &Connection) -> Result<Vec<ScheduledJob>, AppError> {
+    let sql = "SELECT id, name, job_type, target_id, cron_expr, enabled, \
+               CAST(created_at AS VARCHAR), CAST(last_run_at AS VARCHAR) \
+               FROM _tdw.scheduled_jobs ORDER BY created_at";
+    let mut stmt = conn.prepare(sql)?;
+    let mut rows = stmt.query([])?;
+    let mut jobs = Vec::new();
+    while let Some(row) = rows.next()? {
+        let id: String = row.get(0)?;
+        let name: String = row.get(1)?;
+        let job_type_str: String = row.get(2)?;
+        let target_id: String = row.get(3)?;
+        let cron_expr: String = row.get(4)?;
+        let enabled: bool = row.get(5)?;
+        let created_at: String = row.get(6)?;
+        let last_run_at: Option<String> = row.get(7)?;
+        let job_type = job_type_str.parse::<JobType>()
+            .map_err(AppError::Other)?;
+        jobs.push(ScheduledJob { id, name, job_type, target_id, cron_expr, enabled, created_at, last_run_at });
+    }
+    Ok(jobs)
+}
+
+fn exec_save_scheduled_job(conn: &Connection, job: &ScheduledJob) -> Result<(), AppError> {
+    let sql = "INSERT OR REPLACE INTO _tdw.scheduled_jobs \
+               (id, name, job_type, target_id, cron_expr, enabled, created_at, last_run_at) \
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
+    conn.execute(sql, duckdb::params![
+        job.id,
+        job.name,
+        job.job_type.as_str(),
+        job.target_id,
+        job.cron_expr,
+        job.enabled,
+        job.created_at,
+        job.last_run_at,
+    ])?;
+    Ok(())
+}
+
+fn exec_delete_scheduled_job(conn: &Connection, id: &str) -> Result<(), AppError> {
+    conn.execute("DELETE FROM _tdw.scheduled_jobs WHERE id = ?", duckdb::params![id])?;
+    Ok(())
 }
