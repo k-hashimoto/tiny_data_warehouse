@@ -666,21 +666,32 @@ fn exec_touch_table_timestamp(conn: &Connection, schema_name: &str, table_name: 
     Ok(())
 }
 
-fn exec_get_table_meta(conn: &Connection, schema_name: &str, table_name: &str) -> Result<TableMeta, String> {
+fn fetch_table_meta(
+    conn: &Connection,
+    schema_name: &str,
+    table_name: &str,
+    exclude_db: Option<&str>,
+) -> Result<TableMeta, String> {
+    let db_filter = exclude_db
+        .map(|db| format!(" AND database_name != {}", sql_util::literal(db)))
+        .unwrap_or_default();
+
     let comment: Option<String> = conn.query_row(
         &format!(
-            "SELECT comment FROM duckdb_tables() WHERE database_name != 'dbt' AND schema_name = {} AND table_name = {}",
+            "SELECT comment FROM duckdb_tables() WHERE schema_name = {} AND table_name = {}{}",
             sql_util::literal(schema_name),
-            sql_util::literal(table_name)
+            sql_util::literal(table_name),
+            db_filter
         ),
         [],
         |r| r.get::<_, String>(0),
     ).ok();
 
     let sql = format!(
-        "SELECT column_name, data_type, comment FROM duckdb_columns() WHERE database_name != 'dbt' AND schema_name = {} AND table_name = {} ORDER BY column_index",
+        "SELECT column_name, data_type, comment FROM duckdb_columns() WHERE schema_name = {} AND table_name = {}{} ORDER BY column_index",
         sql_util::literal(schema_name),
-        sql_util::literal(table_name)
+        sql_util::literal(table_name),
+        db_filter
     );
     let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
     let mut rows = stmt.query([]).map_err(|e| e.to_string())?;
@@ -692,7 +703,6 @@ fn exec_get_table_meta(conn: &Connection, schema_name: &str, table_name: &str) -
         columns.push(ColumnMeta { name, data_type, comment: col_comment });
     }
 
-    // タイムスタンプを取得
     let ts_sql = format!(
         "SELECT created_at, updated_at FROM _tdw.table_timestamps WHERE schema_name = {} AND table_name = {} AND source = 'adhoc'",
         sql_util::literal(schema_name),
@@ -705,37 +715,16 @@ fn exec_get_table_meta(conn: &Connection, schema_name: &str, table_name: &str) -
     Ok(TableMeta { schema_name: schema_name.to_string(), table_name: table_name.to_string(), comment, columns, created_at, updated_at })
 }
 
+fn exec_get_table_meta(conn: &Connection, schema_name: &str, table_name: &str) -> Result<TableMeta, String> {
+    fetch_table_meta(conn, schema_name, table_name, Some("dbt"))
+}
+
 fn exec_get_dbt_table_meta(dbt_path: &str, schema_name: &str, table_name: &str) -> Result<TableMeta, String> {
     let config = duckdb::Config::default()
         .access_mode(duckdb::AccessMode::ReadOnly)
         .map_err(|e| e.to_string())?;
     let conn = Connection::open_with_flags(dbt_path, config).map_err(|e| e.to_string())?;
-
-    let comment: Option<String> = conn.query_row(
-        &format!(
-            "SELECT comment FROM duckdb_tables() WHERE schema_name = {} AND table_name = {}",
-            sql_util::literal(schema_name),
-            sql_util::literal(table_name)
-        ),
-        [],
-        |r| r.get::<_, String>(0),
-    ).ok();
-
-    let sql = format!(
-        "SELECT column_name, data_type, comment FROM duckdb_columns() WHERE schema_name = {} AND table_name = {} ORDER BY column_index",
-        sql_util::literal(schema_name),
-        sql_util::literal(table_name)
-    );
-    let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
-    let mut rows = stmt.query([]).map_err(|e| e.to_string())?;
-    let mut columns = Vec::new();
-    while let Some(row) = rows.next().map_err(|e| e.to_string())? {
-        let name: String = row.get(0).map_err(|e| e.to_string())?;
-        let data_type: String = row.get(1).map_err(|e| e.to_string())?;
-        let col_comment: Option<String> = row.get::<_, String>(2).ok();
-        columns.push(ColumnMeta { name, data_type, comment: col_comment });
-    }
-    Ok(TableMeta { schema_name: schema_name.to_string(), table_name: table_name.to_string(), comment, columns, created_at: None, updated_at: None })
+    fetch_table_meta(&conn, schema_name, table_name, None)
 }
 
 fn exec_set_table_comment(conn: &Connection, schema_name: &str, table_name: &str, comment: &str) -> Result<(), String> {
