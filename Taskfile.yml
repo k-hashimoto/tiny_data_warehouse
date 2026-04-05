@@ -12,6 +12,7 @@ tasks:
     desc: Build App and install to /Applications
     cmds:
       - npm install && npm run tauri build -- --bundles app
+      - task test:db-worker
       - cp -r "src-tauri/target/release/bundle/macos/TinyDataWarehouse.app" /Applications/
 
   release:prepare:
