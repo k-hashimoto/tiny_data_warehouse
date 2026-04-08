@@ -159,16 +159,6 @@ interface AppState {
   schedulerOpen: boolean;
   setSchedulerOpen: (open: boolean) => void;
 
-  sidebarCollapsed: {
-    tableTree: boolean;
-    dbt: boolean;
-    script: boolean;
-    macro: boolean;
-  };
-  setSidebarCollapsed: (
-    key: "tableTree" | "dbt" | "script" | "macro",
-    value: boolean
-  ) => void;
 }
 
 const initialTabId = nextTabId();
@@ -294,10 +284,6 @@ export const useAppStore = create<AppState>()(
       schedulerOpen: false,
       setSchedulerOpen: (schedulerOpen) => set({ schedulerOpen }),
 
-      sidebarCollapsed: { tableTree: false, dbt: true, script: false, macro: false },
-      setSidebarCollapsed: (key, value) =>
-        set((s) => ({ sidebarCollapsed: { ...s.sidebarCollapsed, [key]: value } })),
-
       setTables: (tables) => set({ tables }),
       setScripts: (scripts) => set({ scripts }),
       setMacros: (macros) => set({ macros }),
@@ -323,7 +309,6 @@ export const useAppStore = create<AppState>()(
         // Strip result from tabs before persisting (results can be large)
         tabs: state.tabs.map(({ result: _r, ...rest }) => ({ ...rest, result: null })),
         activeTabId: state.activeTabId,
-        sidebarCollapsed: state.sidebarCollapsed,
       }),
       onRehydrateStorage: () => (state) => {
         // ダーティフラグをリセット（起動時は全タブをクリーンに）
