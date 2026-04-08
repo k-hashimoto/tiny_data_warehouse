@@ -1,5 +1,6 @@
 mod commands;
 mod config;
+mod cron_engine;
 pub mod db;
 pub mod error;
 mod file_io;
@@ -10,6 +11,7 @@ mod utils;
 
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
+use cron_engine::CronEngine;
 use db::worker::DbWorker;
 use mcp::{McpLock, McpServerHandle};
 use notify::Watcher;
@@ -80,6 +82,8 @@ pub fn run() {
             let mcp_home = home.to_str().unwrap_or("").to_string();
             let mcp_app = app.handle().clone();
             let db_for_macros = db.clone();
+            let db_for_cron = db.clone();
+            let mcp_lock_for_cron = McpLock(mcp_active.clone());
             tauri::async_runtime::spawn(mcp::run_mcp_server(
                 db,
                 mcp_active,
@@ -87,6 +91,12 @@ pub fn run() {
                 mcp_app,
                 mcp_handle,
             ));
+
+            // スケジューラエンジンを起動
+            let cron_home = home.to_str().unwrap_or("").to_string();
+            let (engine, reload_rx) = CronEngine::new(db_for_cron, cron_home, mcp_lock_for_cron);
+            app.manage(engine.clone());
+            engine.start(reload_rx);
 
             commands::scripts::seed_default_scripts(app.handle());
 
@@ -196,6 +206,8 @@ pub fn run() {
             commands::scheduled_jobs::list_scheduled_jobs,
             commands::scheduled_jobs::save_scheduled_job,
             commands::scheduled_jobs::delete_scheduled_job,
+            commands::scheduler_commands::get_scheduler_logs,
+            commands::scheduler_commands::reload_scheduler,
             get_mcp_server_status,
             stop_mcp_server,
             restart_mcp_server,

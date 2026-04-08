@@ -155,6 +155,9 @@ interface AppState {
   setCloseConfirmTab: (tab: { id: string; title: string } | null) => void;
 
   setMetaPanel: (v: { schemaName: string; tableName: string; isDbt: boolean } | null) => void;
+
+  schedulerOpen: boolean;
+  setSchedulerOpen: (open: boolean) => void;
 }
 
 const initialTabId = nextTabId();
@@ -276,6 +279,9 @@ export const useAppStore = create<AppState>()(
         const { activeTabId } = get();
         set((s) => ({ tabs: s.tabs.map((t) => t.id === activeTabId ? { ...t, metaPanel } : t) }));
       },
+
+      schedulerOpen: false,
+      setSchedulerOpen: (schedulerOpen) => set({ schedulerOpen }),
 
       setTables: (tables) => set({ tables }),
       setScripts: (scripts) => set({ scripts }),
