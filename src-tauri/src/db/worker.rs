@@ -156,7 +156,7 @@ impl DbWorker {
         let (tx, rx) = mpsc::sync_channel::<WorkerCmd>(64);
 
         thread::spawn(move || {
-            let conn = Connection::open(&db_path)
+            let mut conn = Connection::open(&db_path)
                 .expect("Failed to open DuckDB connection");
             // Limit DuckDB internal threads to avoid macOS thread conflicts
             let _ = conn.execute("SET threads=2", []);
@@ -195,11 +195,31 @@ impl DbWorker {
                  );"
             );
 
+            // Track dbt attachment state to restore it after reconnection
+            let mut dbt_attached_path: Option<String> = None;
+
             for cmd in rx {
                 match cmd {
                     // === クエリ実行 ===
                     WorkerCmd::Query { sql, tx } => {
                         let _ = tx.send(exec_query(&conn, &sql).map_err(|e| e.to_string()));
+                        // Reconnect after each user query to reset DuckDB's HTTP connection pool.
+                        // This prevents stale keep-alive connections from causing JSON parse errors
+                        // when using read_json_auto with external HTTP URLs.
+                        // Skip for in-memory databases (used in tests): a new in-memory connection
+                        // would lose all previously created tables.
+                        if db_path != ":memory:" {
+                            if let Ok(new_conn) = Connection::open(&db_path) {
+                                let _ = new_conn.execute("SET threads=2", []);
+                                let set_var = format!("SET VARIABLE dbt_db = {}", sql_util::literal(&dbt_db_path));
+                                let _ = new_conn.execute_batch(&set_var);
+                                if let Some(ref path) = dbt_attached_path {
+                                    let attach_sql = format!("ATTACH {} AS dbt (READ_ONLY)", sql_util::literal(path));
+                                    let _ = new_conn.execute(&attach_sql, []);
+                                }
+                                conn = new_conn;
+                            }
+                        }
                     }
 
                     // === スキーマ探索 ===
@@ -226,10 +246,18 @@ impl DbWorker {
                         let _ = tx.send(exec_preview_dbt_table(&dbt_path, &schema_name, &table_name, limit).map_err(|e| e.to_string()));
                     }
                     WorkerCmd::AttachDbt { dbt_path, tx } => {
-                        let _ = tx.send(exec_attach_dbt(&conn, &dbt_path).map_err(|e| e.to_string()));
+                        let result = exec_attach_dbt(&conn, &dbt_path);
+                        if result.is_ok() {
+                            dbt_attached_path = Some(dbt_path);
+                        }
+                        let _ = tx.send(result.map_err(|e| e.to_string()));
                     }
                     WorkerCmd::DetachDbt { tx } => {
-                        let _ = tx.send(exec_detach_dbt(&conn).map_err(|e| e.to_string()));
+                        let result = exec_detach_dbt(&conn);
+                        if result.is_ok() {
+                            dbt_attached_path = None;
+                        }
+                        let _ = tx.send(result.map_err(|e| e.to_string()));
                     }
                     WorkerCmd::DropDbtTable { dbt_path, schema_name, table_name, tx } => {
                         let _ = tx.send(exec_drop_dbt_table(&dbt_path, &schema_name, &table_name).map_err(|e| e.to_string()));
