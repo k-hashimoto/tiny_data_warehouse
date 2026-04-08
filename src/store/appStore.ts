@@ -158,6 +158,7 @@ interface AppState {
 
   schedulerOpen: boolean;
   setSchedulerOpen: (open: boolean) => void;
+
 }
 
 const initialTabId = nextTabId();
