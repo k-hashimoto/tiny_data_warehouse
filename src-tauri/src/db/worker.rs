@@ -217,6 +217,7 @@ impl DbWorker {
                                     let attach_sql = format!("ATTACH {} AS dbt (READ_ONLY)", sql_util::literal(path));
                                     let _ = new_conn.execute(&attach_sql, []);
                                 }
+                                let _ = conn.execute_batch("CHECKPOINT");
                                 conn = new_conn;
                             }
                         }
