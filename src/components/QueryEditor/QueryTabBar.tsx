@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { useAppStore, Tab } from "@/store/appStore";
-import { PlusIcon, XIcon } from "lucide-react";
+import { PlusIcon, XIcon, ClockIcon } from "lucide-react";
 
 export function QueryTabBar({ onCloseRequest }: { onCloseRequest: (tab: Tab) => void }) {
   const tabs = useAppStore((s) => s.tabs);
@@ -8,6 +8,9 @@ export function QueryTabBar({ onCloseRequest }: { onCloseRequest: (tab: Tab) => 
   const setActiveTab = useAppStore((s) => s.setActiveTab);
   const addTab = useAppStore((s) => s.addTab);
   const renameTab = useAppStore((s) => s.renameTab);
+  const historyOpen = useAppStore((s) => s.historyOpen);
+  const setHistoryOpen = useAppStore((s) => s.setHistoryOpen);
+  const setSchedulerOpen = useAppStore((s) => s.setSchedulerOpen);
 
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
@@ -93,6 +96,23 @@ export function QueryTabBar({ onCloseRequest }: { onCloseRequest: (tab: Tab) => 
         title={tabs.length >= 10 ? "タブは最大10枚まで" : "新しいタブ (⌘T)"}
       >
         <PlusIcon className="h-3.5 w-3.5" />
+      </button>
+
+      {/* Spacer */}
+      <div className="flex-1" />
+
+      {/* History button */}
+      <button
+        className={`flex items-center gap-1 px-2 text-xs border-l shrink-0 ${
+          historyOpen
+            ? "bg-background text-foreground"
+            : "text-muted-foreground hover:text-foreground hover:bg-muted/60"
+        }`}
+        onClick={() => { setHistoryOpen(!historyOpen); setSchedulerOpen(false); }}
+        title="Query History"
+      >
+        <ClockIcon className="h-3 w-3" />
+        History
       </button>
     </div>
   );

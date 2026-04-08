@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useAppStore } from "@/store/appStore";
 import { Button } from "@/components/ui/button";
@@ -6,7 +6,7 @@ import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import {
   FileCodeIcon, PlayIcon, RefreshCwIcon, Trash2Icon, ScrollIcon,
   FolderIcon, FolderOpenIcon, ChevronRightIcon, ChevronDownIcon,
-  SaveIcon, PencilIcon,
+  SaveIcon, PencilIcon, CalendarIcon, ClockIcon,
 } from "lucide-react";
 import { useRunQuery } from "@/hooks/useRunQuery";
 
@@ -24,6 +24,8 @@ interface Props {
 export function ScriptList({ isCollapsed, onToggleCollapse }: Props) {
   const scripts = useAppStore((s) => s.scripts);
   const setScripts = useAppStore((s) => s.setScripts);
+  const setSchedulerOpen = useAppStore((s) => s.setSchedulerOpen);
+  const schedulerOpen = useAppStore((s) => s.schedulerOpen);
   const sql = useAppStore((s) => s.sql);
   const tabs = useAppStore((s) => s.tabs);
   const activeTabId = useAppStore((s) => s.activeTabId);
@@ -33,6 +35,7 @@ export function ScriptList({ isCollapsed, onToggleCollapse }: Props) {
   const renameTab = useAppStore((s) => s.renameTab);
   const runQuery = useRunQuery();
 
+  const [scheduledScripts, setScheduledScripts] = useState<Set<string>>(new Set());
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
   const [contextMenu, setContextMenu] = useState<ContextMenu | null>(null);
   const [folderContextMenu, setFolderContextMenu] = useState<{ x: number; y: number; folder: string } | null>(null);
@@ -51,9 +54,22 @@ export function ScriptList({ isCollapsed, onToggleCollapse }: Props) {
     } catch (_) {}
   }
 
+  const refreshScheduled = useCallback(async () => {
+    try {
+      const jobs = await invoke<{ target_id: string }[]>("list_scheduled_jobs");
+      setScheduledScripts(new Set(jobs.map((j) => j.target_id)));
+    } catch (_) {}
+  }, []);
+
   useEffect(() => {
     refresh();
+    refreshScheduled();
   }, []);
+
+  // Schedulerタブが閉じられたらアイコン状態を更新
+  useEffect(() => {
+    if (!schedulerOpen) refreshScheduled();
+  }, [schedulerOpen, refreshScheduled]);
 
   useEffect(() => {
     if (!contextMenu) return;
@@ -212,6 +228,7 @@ export function ScriptList({ isCollapsed, onToggleCollapse }: Props) {
   function ScriptItem({ name }: { name: string }) {
     const isActive = tabs.find((t) => t.id === activeTabId)?.linkedScript === name;
     const isRenaming = renamingScript === name;
+    const isScheduled = scheduledScripts.has(name);
 
     return (
       <div
@@ -222,6 +239,9 @@ export function ScriptList({ isCollapsed, onToggleCollapse }: Props) {
         }}
       >
         <FileCodeIcon className={`h-3 w-3 shrink-0 ${isActive ? "text-primary" : "text-muted-foreground"}`} />
+        {isScheduled && (
+          <ClockIcon className="h-3 w-3 shrink-0 text-blue-500" aria-label="定期実行が設定されています" />
+        )}
 
         {isRenaming ? (
           <div className="flex-1 flex flex-col min-w-0">
@@ -362,6 +382,17 @@ export function ScriptList({ isCollapsed, onToggleCollapse }: Props) {
           >
             <PencilIcon className="h-3 w-3" />
             名前を変更
+          </button>
+          <button
+            className="flex items-center gap-2 w-full px-3 py-1.5 hover:bg-accent"
+            onClick={async () => {
+              await loadScript(contextMenu.name);
+              setSchedulerOpen(true);
+              setContextMenu(null);
+            }}
+          >
+            <CalendarIcon className="h-3 w-3" />
+            スケジュール設定
           </button>
           <div className="border-t my-1" />
           <button

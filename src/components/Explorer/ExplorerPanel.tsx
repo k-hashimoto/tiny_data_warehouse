@@ -11,12 +11,12 @@ export function ExplorerPanel() {
   const tableTreeRef = usePanelRef();
   const dbtRef = usePanelRef();
   const scriptRef = usePanelRef();
+  const macroRef = usePanelRef();
 
   const [tableTreeCollapsed, setTableTreeCollapsed] = useState(false);
   const [dbtCollapsed, setDbtCollapsed] = useState(false);
   const [scriptCollapsed, setScriptCollapsed] = useState(false);
   const [macroCollapsed, setMacroCollapsed] = useState(false);
-  const macroRef = usePanelRef();
 
   function togglePanel(
     panelRef: ReturnType<typeof usePanelRef>,
