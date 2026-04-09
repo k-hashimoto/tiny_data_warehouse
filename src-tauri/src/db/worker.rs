@@ -160,6 +160,8 @@ impl DbWorker {
                 .expect("Failed to open DuckDB connection");
             // Limit DuckDB internal threads to avoid macOS thread conflicts
             let _ = conn.execute("SET threads=2", []);
+            // Disable automatic checkpoints to prevent SIGBUS on macOS (memory-mapped page reclaim)
+            let _ = conn.execute("SET checkpoint_threshold='1TB'", []);
             // Set dbt_db variable so users can ATTACH with: ATTACH getvariable('dbt_db') AS dbt
             let set_var = format!("SET VARIABLE dbt_db = {}", sql_util::literal(&dbt_db_path));
             let _ = conn.execute_batch(&set_var);
@@ -211,6 +213,7 @@ impl DbWorker {
                         if db_path != ":memory:" {
                             if let Ok(new_conn) = Connection::open(&db_path) {
                                 let _ = new_conn.execute("SET threads=2", []);
+                                let _ = new_conn.execute("SET checkpoint_threshold='1TB'", []);
                                 let set_var = format!("SET VARIABLE dbt_db = {}", sql_util::literal(&dbt_db_path));
                                 let _ = new_conn.execute_batch(&set_var);
                                 if let Some(ref path) = dbt_attached_path {
