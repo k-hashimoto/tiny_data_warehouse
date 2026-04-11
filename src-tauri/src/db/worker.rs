@@ -1,4 +1,3 @@
-use std::sync::mpsc;
 use std::thread;
 use std::time::Instant;
 use duckdb::Connection;
@@ -146,20 +145,23 @@ pub enum WorkerCmd {
 /// DuckDB をシングルスレッドで動かすアクター
 #[derive(Clone)]
 pub struct DbWorker {
-    tx: mpsc::SyncSender<WorkerCmd>,
+    tx: tokio::sync::mpsc::UnboundedSender<WorkerCmd>,
 }
 
 impl DbWorker {
     pub fn new(db_path: &str, dbt_db_path: &str) -> Self {
         let db_path = db_path.to_string();
         let dbt_db_path = dbt_db_path.to_string();
-        let (tx, rx) = mpsc::sync_channel::<WorkerCmd>(64);
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<WorkerCmd>();
 
         thread::spawn(move || {
-            let mut conn = Connection::open(&db_path)
+            let conn = Connection::open(&db_path)
                 .expect("Failed to open DuckDB connection");
             // Limit DuckDB internal threads to avoid macOS thread conflicts
             let _ = conn.execute("SET threads=2", []);
+            // Disable automatic checkpoint on shutdown to prevent SIGBUS on macOS ARM.
+            // Combined with checkpoint_threshold='1TB', this avoids WAL truncation during mmap access.
+            let _ = conn.execute_batch("PRAGMA disable_checkpoint_on_shutdown");
             // Set dbt_db variable so users can ATTACH with: ATTACH getvariable('dbt_db') AS dbt
             let set_var = format!("SET VARIABLE dbt_db = {}", sql_util::literal(&dbt_db_path));
             let _ = conn.execute_batch(&set_var);
@@ -195,32 +197,18 @@ impl DbWorker {
                  );"
             );
 
-            // Track dbt attachment state to restore it after reconnection
-            let mut dbt_attached_path: Option<String> = None;
-
-            for cmd in rx {
+            while let Some(cmd) = rx.blocking_recv() {
                 match cmd {
                     // === クエリ実行 ===
                     WorkerCmd::Query { sql, tx } => {
-                        let _ = tx.send(exec_query(&conn, &sql).map_err(|e| e.to_string()));
-                        // Reconnect after each user query to reset DuckDB's HTTP connection pool.
-                        // This prevents stale keep-alive connections from causing JSON parse errors
-                        // when using read_json_auto with external HTTP URLs.
-                        // Skip for in-memory databases (used in tests): a new in-memory connection
-                        // would lose all previously created tables.
-                        if db_path != ":memory:" {
-                            if let Ok(new_conn) = Connection::open(&db_path) {
-                                let _ = new_conn.execute("SET threads=2", []);
-                                let set_var = format!("SET VARIABLE dbt_db = {}", sql_util::literal(&dbt_db_path));
-                                let _ = new_conn.execute_batch(&set_var);
-                                if let Some(ref path) = dbt_attached_path {
-                                    let attach_sql = format!("ATTACH {} AS dbt (READ_ONLY)", sql_util::literal(path));
-                                    let _ = new_conn.execute(&attach_sql, []);
-                                }
-                                let _ = conn.execute_batch("CHECKPOINT");
-                                conn = new_conn;
-                            }
+                        // For queries accessing external HTTP APIs, configure session settings
+                        // to disable keep-alive and set timeout/retry to prevent connection pool corruption.
+                        if sql.contains("http://") || sql.contains("https://") {
+                            let _ = conn.execute_batch(
+                                "SET http_keep_alive = false; SET http_timeout = 30000; SET http_retries = 3;"
+                            );
                         }
+                        let _ = tx.send(exec_query(&conn, &sql).map_err(|e| e.to_string()));
                     }
 
                     // === スキーマ探索 ===
@@ -248,16 +236,10 @@ impl DbWorker {
                     }
                     WorkerCmd::AttachDbt { dbt_path, tx } => {
                         let result = exec_attach_dbt(&conn, &dbt_path);
-                        if result.is_ok() {
-                            dbt_attached_path = Some(dbt_path);
-                        }
                         let _ = tx.send(result.map_err(|e| e.to_string()));
                     }
                     WorkerCmd::DetachDbt { tx } => {
                         let result = exec_detach_dbt(&conn);
-                        if result.is_ok() {
-                            dbt_attached_path = None;
-                        }
                         let _ = tx.send(result.map_err(|e| e.to_string()));
                     }
                     WorkerCmd::DropDbtTable { dbt_path, schema_name, table_name, tx } => {
