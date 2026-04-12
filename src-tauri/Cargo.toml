@@ -1,6 +1,6 @@
 [package]
 name = "tiny-data-ware-house"
-version = "0.1.6"
+version = "0.1.7"
 description = "Tiny Data Ware House"
 authors = ["you"]
 edition = "2021"
@@ -31,4 +31,6 @@ tauri-plugin-dialog = "2.6.0"
 serde_yaml = "0.9"
 dirs = "5"
 thiserror = "1"
+cron = "0.12"
+chrono = "0.4"
 

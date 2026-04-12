@@ -1,4 +1,3 @@
-use std::sync::mpsc;
 use std::thread;
 use std::time::Instant;
 use duckdb::Connection;
@@ -146,20 +145,24 @@ pub enum WorkerCmd {
 /// DuckDB をシングルスレッドで動かすアクター
 #[derive(Clone)]
 pub struct DbWorker {
-    tx: mpsc::SyncSender<WorkerCmd>,
+    tx: tokio::sync::mpsc::UnboundedSender<WorkerCmd>,
 }
 
 impl DbWorker {
     pub fn new(db_path: &str, dbt_db_path: &str) -> Self {
         let db_path = db_path.to_string();
         let dbt_db_path = dbt_db_path.to_string();
-        let (tx, rx) = mpsc::sync_channel::<WorkerCmd>(64);
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<WorkerCmd>();
 
         thread::spawn(move || {
             let conn = Connection::open(&db_path)
                 .expect("Failed to open DuckDB connection");
             // Limit DuckDB internal threads to avoid macOS thread conflicts
             let _ = conn.execute("SET threads=2", []);
+            // Disable automatic checkpoints to prevent SIGBUS on macOS ARM (memory-mapped page reclaim).
+            // checkpoint_threshold='1TB' prevents mid-query checkpoints; PRAGMA disables checkpoint on shutdown.
+            let _ = conn.execute("SET checkpoint_threshold='1TB'", []);
+            let _ = conn.execute_batch("PRAGMA disable_checkpoint_on_shutdown");
             // Set dbt_db variable so users can ATTACH with: ATTACH getvariable('dbt_db') AS dbt
             let set_var = format!("SET VARIABLE dbt_db = {}", sql_util::literal(&dbt_db_path));
             let _ = conn.execute_batch(&set_var);
@@ -194,11 +197,39 @@ impl DbWorker {
                      last_run_at TIMESTAMP
                  );"
             );
+            // Migrate: add timezone column to scheduled_jobs if it does not exist yet.
+            // Note: DEFAULT value in ALTER TABLE triggers a DuckDB WAL replay bug
+            // (GetDefaultDatabase assertion failure on next startup). Use a two-step
+            // approach: ADD COLUMN without DEFAULT, then UPDATE to fill NULLs.
+            let col_exists: bool = conn
+                .query_row(
+                    "SELECT COUNT(*) > 0 FROM information_schema.columns \
+                     WHERE table_schema = '_tdw' AND table_name = 'scheduled_jobs' AND column_name = 'timezone'",
+                    [],
+                    |r| r.get(0),
+                )
+                .unwrap_or(false);
+            if !col_exists {
+                let _ = conn.execute_batch(
+                    "ALTER TABLE _tdw.scheduled_jobs ADD COLUMN timezone VARCHAR; \
+                     UPDATE _tdw.scheduled_jobs SET timezone = 'UTC' WHERE timezone IS NULL;"
+                );
+            }
+            // Flush WAL after schema initialization so the next startup does not need to
+            // replay ALTER TABLE statements (which can hit a DuckDB internal assertion).
+            let _ = conn.execute_batch("CHECKPOINT");
 
-            for cmd in rx {
+            while let Some(cmd) = rx.blocking_recv() {
                 match cmd {
                     // === クエリ実行 ===
                     WorkerCmd::Query { sql, tx } => {
+                        // For queries accessing external HTTP APIs, configure session settings
+                        // to disable keep-alive and set timeout/retry to prevent connection pool corruption.
+                        if sql.contains("http://") || sql.contains("https://") {
+                            let _ = conn.execute_batch(
+                                "SET http_keep_alive = false; SET http_timeout = 30000; SET http_retries = 3;"
+                            );
+                        }
                         let _ = tx.send(exec_query(&conn, &sql).map_err(|e| e.to_string()));
                     }
 
@@ -226,10 +257,12 @@ impl DbWorker {
                         let _ = tx.send(exec_preview_dbt_table(&dbt_path, &schema_name, &table_name, limit).map_err(|e| e.to_string()));
                     }
                     WorkerCmd::AttachDbt { dbt_path, tx } => {
-                        let _ = tx.send(exec_attach_dbt(&conn, &dbt_path).map_err(|e| e.to_string()));
+                        let result = exec_attach_dbt(&conn, &dbt_path);
+                        let _ = tx.send(result.map_err(|e| e.to_string()));
                     }
                     WorkerCmd::DetachDbt { tx } => {
-                        let _ = tx.send(exec_detach_dbt(&conn).map_err(|e| e.to_string()));
+                        let result = exec_detach_dbt(&conn);
+                        let _ = tx.send(result.map_err(|e| e.to_string()));
                     }
                     WorkerCmd::DropDbtTable { dbt_path, schema_name, table_name, tx } => {
                         let _ = tx.send(exec_drop_dbt_table(&dbt_path, &schema_name, &table_name).map_err(|e| e.to_string()));
@@ -889,7 +922,7 @@ fn exec_import_json(conn: &Connection, opts: &JsonImportOptions) -> Result<Table
 
 fn exec_list_scheduled_jobs(conn: &Connection) -> Result<Vec<ScheduledJob>, AppError> {
     let sql = "SELECT id, name, job_type, target_id, cron_expr, enabled, \
-               CAST(created_at AS VARCHAR), CAST(last_run_at AS VARCHAR) \
+               CAST(created_at AS VARCHAR), CAST(last_run_at AS VARCHAR), timezone \
                FROM _tdw.scheduled_jobs ORDER BY created_at";
     let mut stmt = conn.prepare(sql)?;
     let mut rows = stmt.query([])?;
@@ -903,23 +936,25 @@ fn exec_list_scheduled_jobs(conn: &Connection) -> Result<Vec<ScheduledJob>, AppE
         let enabled: bool = row.get(5)?;
         let created_at: String = row.get(6)?;
         let last_run_at: Option<String> = row.get(7)?;
+        let timezone: String = row.get::<_, Option<String>>(8)?.unwrap_or_else(|| "UTC".to_string());
         let job_type = job_type_str.parse::<JobType>()
             .map_err(AppError::Other)?;
-        jobs.push(ScheduledJob { id, name, job_type, target_id, cron_expr, enabled, created_at, last_run_at });
+        jobs.push(ScheduledJob { id, name, job_type, target_id, cron_expr, timezone, enabled, created_at, last_run_at });
     }
     Ok(jobs)
 }
 
 fn exec_save_scheduled_job(conn: &Connection, job: &ScheduledJob) -> Result<(), AppError> {
     let sql = "INSERT OR REPLACE INTO _tdw.scheduled_jobs \
-               (id, name, job_type, target_id, cron_expr, enabled, created_at, last_run_at) \
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
+               (id, name, job_type, target_id, cron_expr, timezone, enabled, created_at, last_run_at) \
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
     conn.execute(sql, duckdb::params![
         job.id,
         job.name,
         job.job_type.as_str(),
         job.target_id,
         job.cron_expr,
+        job.timezone,
         job.enabled,
         job.created_at,
         job.last_run_at,

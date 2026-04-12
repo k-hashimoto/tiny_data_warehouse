@@ -6,6 +6,7 @@ pub mod macros;
 pub mod metadata;
 pub mod query;
 pub mod scheduled_jobs;
+pub mod scheduler_commands;
 pub mod scripts;
 
 use std::sync::atomic::Ordering;

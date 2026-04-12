@@ -10,12 +10,13 @@ import { ExplorerPanel } from "@/components/Explorer/ExplorerPanel";
 import { Editor, type EditorConfig } from "@/components/QueryEditor/Editor";
 import { ResultTable } from "@/components/ResultsPanel/ResultTable";
 import { TableMetaPanel } from "@/components/Explorer/TableMetaPanel";
+import { SchedulerPanel } from "@/components/Scheduler/SchedulerPanel";
 import { StatusBar } from "@/components/StatusBar";
 import { QueryHistory } from "@/components/QueryHistory/QueryHistory";
 import { useAppStore } from "@/store/appStore";
 import { useRunQuery } from "@/hooks/useRunQuery";
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
-import { SunIcon, MoonIcon, ClockIcon } from "lucide-react";
+import { SunIcon, MoonIcon, CalendarIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 const defaultEditorConfig: EditorConfig = { line_numbers: true, tab_size: 4, theme: "dark" };
@@ -23,6 +24,8 @@ const defaultEditorConfig: EditorConfig = { line_numbers: true, tab_size: 4, the
 function App() {
   const historyOpen = useAppStore((s) => s.historyOpen);
   const setHistoryOpen = useAppStore((s) => s.setHistoryOpen);
+  const schedulerOpen = useAppStore((s) => s.schedulerOpen);
+  const setSchedulerOpen = useAppStore((s) => s.setSchedulerOpen);
   const metaPanel = useAppStore((s) => s.getActiveTab().metaPanel);
   const darkMode = useAppStore((s) => s.darkMode);
   const setDarkMode = useAppStore((s) => s.setDarkMode);
@@ -169,13 +172,22 @@ function App() {
                 <div className="flex items-center border-b px-2 py-0.5 shrink-0">
                   <Button
                     size="sm"
-                    variant={historyOpen ? "secondary" : "ghost"}
+                    variant={!schedulerOpen ? "secondary" : "ghost"}
                     className="h-6 text-xs gap-1"
-                    onClick={() => setHistoryOpen(!historyOpen)}
-                    title="Query History"
+                    onClick={() => { setSchedulerOpen(false); }}
+                    title="Result"
                   >
-                    <ClockIcon className="h-3 w-3" />
-                    History
+                    Result
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant={schedulerOpen ? "secondary" : "ghost"}
+                    className="h-6 text-xs gap-1"
+                    onClick={() => { setSchedulerOpen(true); setHistoryOpen(false); }}
+                    title="Scheduler"
+                  >
+                    <CalendarIcon className="h-3 w-3" />
+                    Scheduler
                   </Button>
                 </div>
                 {historyOpen ? (
@@ -184,6 +196,10 @@ function App() {
                       onSelect={(q) => { updateTabSql(activeTabId, q); setHistoryOpen(false); }}
                       onClose={() => setHistoryOpen(false)}
                     />
+                  </div>
+                ) : schedulerOpen ? (
+                  <div className="flex-1 overflow-hidden">
+                    <SchedulerPanel />
                   </div>
                 ) : (
                   <div className="flex-1 overflow-hidden">
