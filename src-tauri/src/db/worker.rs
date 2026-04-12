@@ -159,8 +159,9 @@ impl DbWorker {
                 .expect("Failed to open DuckDB connection");
             // Limit DuckDB internal threads to avoid macOS thread conflicts
             let _ = conn.execute("SET threads=2", []);
-            // Disable automatic checkpoint on shutdown to prevent SIGBUS on macOS ARM.
-            // Combined with checkpoint_threshold='1TB', this avoids WAL truncation during mmap access.
+            // Disable automatic checkpoints to prevent SIGBUS on macOS ARM (memory-mapped page reclaim).
+            // checkpoint_threshold='1TB' prevents mid-query checkpoints; PRAGMA disables checkpoint on shutdown.
+            let _ = conn.execute("SET checkpoint_threshold='1TB'", []);
             let _ = conn.execute_batch("PRAGMA disable_checkpoint_on_shutdown");
             // Set dbt_db variable so users can ATTACH with: ATTACH getvariable('dbt_db') AS dbt
             let set_var = format!("SET VARIABLE dbt_db = {}", sql_util::literal(&dbt_db_path));
