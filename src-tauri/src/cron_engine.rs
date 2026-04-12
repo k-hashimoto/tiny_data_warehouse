@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::io::Write;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -28,6 +29,8 @@ pub struct CronEngine {
     home_dir: String,
     mcp_lock: McpLock,
     reload_tx: tokio::sync::watch::Sender<()>,
+    /// 現在実行中のジョブID集合。重複実行防止に使用する。
+    executing: Arc<std::sync::Mutex<HashSet<String>>>,
 }
 
 impl CronEngine {
@@ -42,6 +45,7 @@ impl CronEngine {
             home_dir,
             mcp_lock,
             reload_tx,
+            executing: Arc::new(std::sync::Mutex::new(HashSet::new())),
         });
         (engine, reload_rx)
     }
@@ -73,21 +77,31 @@ impl CronEngine {
                     continue;
                 }
 
-                // 各ジョブの次回実行時刻を計算して最も早いものを選ぶ
+                // 各ジョブの次回実行時刻を計算して最も早い時刻とそのジョブ一覧を収集する
                 let now_secs = current_epoch_secs();
-                let mut earliest: Option<(u64, usize)> = None; // (next_epoch_secs, job_index)
+                let mut earliest_secs: Option<u64> = None;
+                let mut jobs_to_run: Vec<usize> = vec![];
 
                 for (idx, job) in active_jobs.iter().enumerate() {
                     if let Some(next) = next_run_secs(&job.cron_expr, now_secs) {
-                        match earliest {
-                            None => earliest = Some((next, idx)),
-                            Some((e, _)) if next < e => earliest = Some((next, idx)),
+                        match earliest_secs {
+                            None => {
+                                earliest_secs = Some(next);
+                                jobs_to_run = vec![idx];
+                            }
+                            Some(e) if next < e => {
+                                earliest_secs = Some(next);
+                                jobs_to_run = vec![idx];
+                            }
+                            Some(e) if next == e => {
+                                jobs_to_run.push(idx);
+                            }
                             _ => {}
                         }
                     }
                 }
 
-                let Some((next_secs, job_idx)) = earliest else {
+                let Some(next_secs) = earliest_secs else {
                     // cron パースに失敗したジョブしかない場合
                     let _ = reload_rx.changed().await;
                     continue;
@@ -99,14 +113,17 @@ impl CronEngine {
 
                 tokio::select! {
                     _ = &mut sleep => {
-                        // 実行対象ジョブを取得（ループ前に clone してあるので安全）
-                        let job = active_jobs[job_idx].clone();
-                        let db = self.db.clone();
-                        let home = self.home_dir.clone();
-                        let mcp_active = self.mcp_lock.0.clone();
-                        tauri::async_runtime::spawn(async move {
-                            execute_job(&job, &db, &home, &mcp_active).await;
-                        });
+                        // 同一時刻にスケジュールされたジョブをすべて spawn する
+                        for job_idx in jobs_to_run {
+                            let job = active_jobs[job_idx].clone();
+                            let db = self.db.clone();
+                            let home = self.home_dir.clone();
+                            let mcp_active = self.mcp_lock.0.clone();
+                            let executing = self.executing.clone();
+                            tauri::async_runtime::spawn(async move {
+                                execute_job(&job, &db, &home, &mcp_active, &executing).await;
+                            });
+                        }
                         // 次のループへ（ジョブ一覧を再ロード）
                     }
                     _ = reload_rx.changed() => {
@@ -210,6 +227,7 @@ async fn execute_job(
     db: &DbWorker,
     home_dir: &str,
     mcp_active: &Arc<std::sync::atomic::AtomicBool>,
+    executing: &Arc<std::sync::Mutex<HashSet<String>>>,
 ) {
     let started_at = current_epoch_secs();
 
@@ -226,6 +244,25 @@ async fn execute_job(
         };
         write_log_entry(home_dir, &job.target_id, started_at, &entry);
         return;
+    }
+
+    // 重複実行防止: 既に実行中の場合はスキップ
+    {
+        let mut set = executing.lock().unwrap_or_else(|e| e.into_inner());
+        if set.contains(&job.id) {
+            let finished_at = current_epoch_secs();
+            let entry = SchedulerLogEntry {
+                job_id: job.id.clone(),
+                script_name: job.target_id.clone(),
+                started_at: epoch_to_iso(started_at),
+                finished_at: epoch_to_iso(finished_at),
+                success: false,
+                error_message: Some("Skipped: already running".to_string()),
+            };
+            write_log_entry(home_dir, &job.target_id, started_at, &entry);
+            return;
+        }
+        set.insert(job.id.clone());
     }
 
     // スクリプトファイルを読み込む
@@ -247,16 +284,23 @@ async fn execute_job(
                 error_message: Some(format!("Failed to read script: {e}")),
             };
             write_log_entry(home_dir, &job.target_id, started_at, &entry);
+            // 実行完了としてジョブIDを削除
+            executing.lock().unwrap_or_else(|e| e.into_inner()).remove(&job.id);
             return;
         }
     };
 
-    // クエリを実行する
-    let result = db.query(sql).await;
+    // クエリを実行する（300秒タイムアウト）
+    const JOB_TIMEOUT_SECS: u64 = 300;
+    let result = tokio::time::timeout(
+        tokio::time::Duration::from_secs(JOB_TIMEOUT_SECS),
+        db.query(sql),
+    )
+    .await;
     let finished_at = current_epoch_secs();
 
     let entry = match result {
-        Ok(_) => SchedulerLogEntry {
+        Ok(Ok(_)) => SchedulerLogEntry {
             job_id: job.id.clone(),
             script_name: job.target_id.clone(),
             started_at: epoch_to_iso(started_at),
@@ -264,7 +308,7 @@ async fn execute_job(
             success: true,
             error_message: None,
         },
-        Err(e) => SchedulerLogEntry {
+        Ok(Err(e)) => SchedulerLogEntry {
             job_id: job.id.clone(),
             script_name: job.target_id.clone(),
             started_at: epoch_to_iso(started_at),
@@ -272,9 +316,20 @@ async fn execute_job(
             success: false,
             error_message: Some(e),
         },
+        Err(_elapsed) => SchedulerLogEntry {
+            job_id: job.id.clone(),
+            script_name: job.target_id.clone(),
+            started_at: epoch_to_iso(started_at),
+            finished_at: epoch_to_iso(finished_at),
+            success: false,
+            error_message: Some("Job timed out after 300s".to_string()),
+        },
     };
 
     write_log_entry(home_dir, &job.target_id, started_at, &entry);
+
+    // 成功・失敗問わず実行完了としてジョブIDを削除
+    executing.lock().unwrap_or_else(|e| e.into_inner()).remove(&job.id);
 }
 
 /// ログエントリを JSONL 形式でファイルに追記する。
@@ -377,5 +432,27 @@ mod tests {
     fn test_next_run_secs_invalid() {
         let result = next_run_secs("not a cron", 0);
         assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_collect_jobs_same_cron() {
+        // 同じ cron 式を持つ 2 ジョブが同一の next_secs を返すことを確認
+        let now = 1775520000u64; // 2026-04-07 00:00:00 UTC
+        let cron = "0 * * * *"; // 毎時0分
+        let next1 = next_run_secs(cron, now).unwrap();
+        let next2 = next_run_secs(cron, now).unwrap();
+        assert_eq!(next1, next2, "同じ cron 式は同じ next_secs を返す必要がある");
+        assert!(next1 > now);
+    }
+
+    #[test]
+    fn test_collect_jobs_different_cron() {
+        // 異なる cron 式は異なる next_secs を返すことを確認
+        let now = 1775520000u64; // 2026-04-07 00:00:00 UTC（分=0）
+        // now はちょうど 00:00:00 なので、"*/15 * * * *" の次回は 00:15:00
+        // "0 * * * *" の次回は 01:00:00
+        let next_15min = next_run_secs("*/15 * * * *", now).unwrap();
+        let next_hourly = next_run_secs("0 * * * *", now).unwrap();
+        assert!(next_15min < next_hourly, "15分ごとは1時間ごとより早く実行される");
     }
 }

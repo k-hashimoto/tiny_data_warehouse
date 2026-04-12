@@ -7,6 +7,7 @@ export interface ScheduledJobPayload {
   job_type: string;
   target_id: string;
   cron_expr: string;
+  timezone: string;
   enabled: boolean;
   created_at: string;
   last_run_at: string | null;
@@ -21,82 +22,101 @@ export interface ScheduleForm {
   monthDay?: number;  // 1-28
   hour?: number;
   minute?: number;
+  timezone: "UTC" | "JST";
 }
 
 const WEEKDAY_LABELS = ["日", "月", "火", "水", "木", "金", "土"];
 
-// ScheduleForm を cron 式に変換する
+// ScheduleForm を cron 式に変換する（cron 式は常に UTC）
 export function formToCronExpr(form: ScheduleForm): string {
+  const jst = form.timezone === "JST";
+  // JST (UTC+9) → UTC: hour を -9 する（日跨ぎあり）
+  const toUtcHour = (h: number) => (h - 9 + 24) % 24;
+  const dayWraps  = (h: number) => jst && h < 9; // JST 時刻が 0〜8 時 → UTC は前日
+
   switch (form.type) {
     case "every_n_minutes": {
       const n = form.intervalMinutes ?? 15;
       return n === 60 ? "0 * * * *" : `*/${n} * * * *`;
     }
     case "daily": {
-      const h = form.hour ?? 0;
+      const h = jst ? toUtcHour(form.hour ?? 0) : (form.hour ?? 0);
       const m = form.minute ?? 0;
       return `${m} ${h} * * *`;
     }
     case "weekly": {
-      const h = form.hour ?? 0;
+      const rawH = form.hour ?? 0;
+      const h = jst ? toUtcHour(rawH) : rawH;
       const m = form.minute ?? 0;
-      const wd = form.weekday ?? 0;
+      const wd = dayWraps(rawH) ? (((form.weekday ?? 0) - 1 + 7) % 7) : (form.weekday ?? 0);
       return `${m} ${h} * * ${wd}`;
     }
     case "monthly": {
-      const h = form.hour ?? 0;
+      const rawH = form.hour ?? 0;
+      const h = jst ? toUtcHour(rawH) : rawH;
       const m = form.minute ?? 0;
-      const d = form.monthDay ?? 1;
+      const rawD = form.monthDay ?? 1;
+      const d = dayWraps(rawH) ? (rawD === 1 ? 28 : rawD - 1) : rawD;
       return `${m} ${h} ${d} * *`;
     }
   }
 }
 
 // cron 式を ScheduleForm に逆変換する（既存ジョブの編集用）
-export function cronExprToForm(expr: string): ScheduleForm {
+// cron 式は UTC で保存されているため、JST の場合は +9 時間に変換して返す
+export function cronExprToForm(expr: string, timezone?: string): ScheduleForm {
+  const tz: "UTC" | "JST" = timezone === "JST" ? "JST" : "UTC";
+  const toJstHour = (utcH: number) => (utcH + 9) % 24;
+  const dayAdvances = (utcH: number) => tz === "JST" && utcH + 9 >= 24; // UTC→JST で日跨ぎ
+
   const parts = expr.trim().split(/\s+/);
   if (parts.length !== 5) {
-    return { type: "every_n_minutes", intervalMinutes: 15 };
+    return { type: "every_n_minutes", intervalMinutes: 15, timezone: tz };
   }
   const [minPart, hourPart, dayPart, , wdPart] = parts;
 
   // 毎 N 分パターン: */15 * * * * or */30 * * * * or 0 * * * *
   if (minPart === "0" && hourPart === "*" && dayPart === "*" && wdPart === "*") {
-    return { type: "every_n_minutes", intervalMinutes: 60 };
+    return { type: "every_n_minutes", intervalMinutes: 60, timezone: tz };
   }
   if (minPart.startsWith("*/") && hourPart === "*" && dayPart === "*" && wdPart === "*") {
     const n = parseInt(minPart.slice(2), 10);
     if (n === 15 || n === 30) {
-      return { type: "every_n_minutes", intervalMinutes: n };
+      return { type: "every_n_minutes", intervalMinutes: n, timezone: tz };
     }
   }
   // 毎日パターン: m h * * *
   if (dayPart === "*" && wdPart === "*" && hourPart !== "*") {
-    const h = parseInt(hourPart, 10);
+    const utcH = parseInt(hourPart, 10);
     const m = parseInt(minPart, 10);
-    if (!isNaN(h) && !isNaN(m)) {
-      return { type: "daily", hour: h, minute: m };
+    if (!isNaN(utcH) && !isNaN(m)) {
+      const h = tz === "JST" ? toJstHour(utcH) : utcH;
+      return { type: "daily", hour: h, minute: m, timezone: tz };
     }
   }
   // 毎週パターン: m h * * wd
   if (dayPart === "*" && wdPart !== "*") {
-    const wd = parseInt(wdPart, 10);
-    const h = parseInt(hourPart, 10);
+    const utcWd = parseInt(wdPart, 10);
+    const utcH = parseInt(hourPart, 10);
     const m = parseInt(minPart, 10);
-    if (!isNaN(wd) && !isNaN(h) && !isNaN(m)) {
-      return { type: "weekly", weekday: wd, hour: h, minute: m };
+    if (!isNaN(utcWd) && !isNaN(utcH) && !isNaN(m)) {
+      const h = tz === "JST" ? toJstHour(utcH) : utcH;
+      const wd = dayAdvances(utcH) ? ((utcWd + 1) % 7) : utcWd;
+      return { type: "weekly", weekday: wd, hour: h, minute: m, timezone: tz };
     }
   }
   // 毎月パターン: m h d * *
   if (dayPart !== "*" && wdPart === "*") {
-    const d = parseInt(dayPart, 10);
-    const h = parseInt(hourPart, 10);
+    const utcD = parseInt(dayPart, 10);
+    const utcH = parseInt(hourPart, 10);
     const m = parseInt(minPart, 10);
-    if (!isNaN(d) && !isNaN(h) && !isNaN(m)) {
-      return { type: "monthly", monthDay: d, hour: h, minute: m };
+    if (!isNaN(utcD) && !isNaN(utcH) && !isNaN(m)) {
+      const h = tz === "JST" ? toJstHour(utcH) : utcH;
+      const d = dayAdvances(utcH) ? (utcD === 28 ? 1 : utcD + 1) : utcD;
+      return { type: "monthly", monthDay: d, hour: h, minute: m, timezone: tz };
     }
   }
-  return { type: "every_n_minutes", intervalMinutes: 15 };
+  return { type: "every_n_minutes", intervalMinutes: 15, timezone: tz };
 }
 
 interface Props {
@@ -108,8 +128,8 @@ interface Props {
 
 export function SchedulerJobForm({ scriptName, existingJob, onSave, onCancel }: Props) {
   const initialForm: ScheduleForm = existingJob
-    ? cronExprToForm(existingJob.cron_expr)
-    : { type: "every_n_minutes", intervalMinutes: 15 };
+    ? cronExprToForm(existingJob.cron_expr, existingJob.timezone)
+    : { type: "every_n_minutes", intervalMinutes: 15, timezone: "JST" };
 
   const [form, setForm] = useState<ScheduleForm>(initialForm);
   const [jobName, setJobName] = useState(existingJob?.name ?? scriptName);
@@ -150,13 +170,14 @@ export function SchedulerJobForm({ scriptName, existingJob, onSave, onCancel }: 
     const cron_expr = formToCronExpr(form);
     const now = new Date().toISOString();
     const job: ScheduledJobPayload = existingJob
-      ? { ...existingJob, name: jobName.trim(), cron_expr }
+      ? { ...existingJob, name: jobName.trim(), cron_expr, timezone: form.timezone }
       : {
           id: crypto.randomUUID(),
           name: jobName.trim(),
           job_type: "Query",
           target_id: scriptName,
           cron_expr,
+          timezone: form.timezone,
           enabled: true,
           created_at: now,
           last_run_at: null,
@@ -182,7 +203,7 @@ export function SchedulerJobForm({ scriptName, existingJob, onSave, onCancel }: 
           className="bg-background border rounded px-2 py-1 text-xs outline-none focus:ring-1 focus:ring-primary"
           value={form.type}
           onChange={(e) =>
-            setForm({ type: e.target.value as ScheduleType, intervalMinutes: 15 })
+            setForm({ type: e.target.value as ScheduleType, intervalMinutes: 15, timezone: form.timezone })
           }
         >
           <option value="every_n_minutes">毎 N 分</option>
@@ -248,12 +269,29 @@ export function SchedulerJobForm({ scriptName, existingJob, onSave, onCancel }: 
         </>
       )}
 
+      {form.type !== "every_n_minutes" && (
+        <div className="flex flex-col gap-1">
+          <label className="text-muted-foreground font-medium">タイムゾーン</label>
+          <select
+            className="bg-background border rounded px-2 py-1 text-xs outline-none focus:ring-1 focus:ring-primary"
+            value={form.timezone}
+            onChange={(e) => setForm({ ...form, timezone: e.target.value as "UTC" | "JST" })}
+          >
+            <option value="UTC">UTC</option>
+            <option value="JST">JST（UTC+9）</option>
+          </select>
+        </div>
+      )}
+
       {validationError && (
         <p className="text-destructive text-[11px]">{validationError}</p>
       )}
 
       <div className="text-muted-foreground text-[11px] break-all">
         cron: <code>{formToCronExpr(form)}</code>
+        {form.type !== "every_n_minutes" && form.timezone === "JST" && (
+          <span className="ml-1">※ UTC で保存されます</span>
+        )}
       </div>
 
       <div className="flex gap-2 justify-end">
