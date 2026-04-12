@@ -159,8 +159,9 @@ impl DbWorker {
                 .expect("Failed to open DuckDB connection");
             // Limit DuckDB internal threads to avoid macOS thread conflicts
             let _ = conn.execute("SET threads=2", []);
-            // Disable automatic checkpoint on shutdown to prevent SIGBUS on macOS ARM.
-            // Combined with checkpoint_threshold='1TB', this avoids WAL truncation during mmap access.
+            // Disable automatic checkpoints to prevent SIGBUS on macOS ARM (memory-mapped page reclaim).
+            // checkpoint_threshold='1TB' prevents mid-query checkpoints; PRAGMA disables checkpoint on shutdown.
+            let _ = conn.execute("SET checkpoint_threshold='1TB'", []);
             let _ = conn.execute_batch("PRAGMA disable_checkpoint_on_shutdown");
             // Set dbt_db variable so users can ATTACH with: ATTACH getvariable('dbt_db') AS dbt
             let set_var = format!("SET VARIABLE dbt_db = {}", sql_util::literal(&dbt_db_path));
@@ -196,10 +197,27 @@ impl DbWorker {
                      last_run_at TIMESTAMP
                  );"
             );
-            // Migrate: add timezone column to scheduled_jobs if it does not exist yet
-            let _ = conn.execute_batch(
-                "ALTER TABLE _tdw.scheduled_jobs ADD COLUMN IF NOT EXISTS timezone VARCHAR DEFAULT 'UTC';"
-            );
+            // Migrate: add timezone column to scheduled_jobs if it does not exist yet.
+            // Note: DEFAULT value in ALTER TABLE triggers a DuckDB WAL replay bug
+            // (GetDefaultDatabase assertion failure on next startup). Use a two-step
+            // approach: ADD COLUMN without DEFAULT, then UPDATE to fill NULLs.
+            let col_exists: bool = conn
+                .query_row(
+                    "SELECT COUNT(*) > 0 FROM information_schema.columns \
+                     WHERE table_schema = '_tdw' AND table_name = 'scheduled_jobs' AND column_name = 'timezone'",
+                    [],
+                    |r| r.get(0),
+                )
+                .unwrap_or(false);
+            if !col_exists {
+                let _ = conn.execute_batch(
+                    "ALTER TABLE _tdw.scheduled_jobs ADD COLUMN timezone VARCHAR; \
+                     UPDATE _tdw.scheduled_jobs SET timezone = 'UTC' WHERE timezone IS NULL;"
+                );
+            }
+            // Flush WAL after schema initialization so the next startup does not need to
+            // replay ALTER TABLE statements (which can hit a DuckDB internal assertion).
+            let _ = conn.execute_batch("CHECKPOINT");
 
             while let Some(cmd) = rx.blocking_recv() {
                 match cmd {
