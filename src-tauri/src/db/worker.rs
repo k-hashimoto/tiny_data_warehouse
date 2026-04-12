@@ -196,6 +196,10 @@ impl DbWorker {
                      last_run_at TIMESTAMP
                  );"
             );
+            // Migrate: add timezone column to scheduled_jobs if it does not exist yet
+            let _ = conn.execute_batch(
+                "ALTER TABLE _tdw.scheduled_jobs ADD COLUMN IF NOT EXISTS timezone VARCHAR DEFAULT 'UTC';"
+            );
 
             while let Some(cmd) = rx.blocking_recv() {
                 match cmd {
@@ -900,7 +904,7 @@ fn exec_import_json(conn: &Connection, opts: &JsonImportOptions) -> Result<Table
 
 fn exec_list_scheduled_jobs(conn: &Connection) -> Result<Vec<ScheduledJob>, AppError> {
     let sql = "SELECT id, name, job_type, target_id, cron_expr, enabled, \
-               CAST(created_at AS VARCHAR), CAST(last_run_at AS VARCHAR) \
+               CAST(created_at AS VARCHAR), CAST(last_run_at AS VARCHAR), timezone \
                FROM _tdw.scheduled_jobs ORDER BY created_at";
     let mut stmt = conn.prepare(sql)?;
     let mut rows = stmt.query([])?;
@@ -914,23 +918,25 @@ fn exec_list_scheduled_jobs(conn: &Connection) -> Result<Vec<ScheduledJob>, AppE
         let enabled: bool = row.get(5)?;
         let created_at: String = row.get(6)?;
         let last_run_at: Option<String> = row.get(7)?;
+        let timezone: String = row.get::<_, Option<String>>(8)?.unwrap_or_else(|| "UTC".to_string());
         let job_type = job_type_str.parse::<JobType>()
             .map_err(AppError::Other)?;
-        jobs.push(ScheduledJob { id, name, job_type, target_id, cron_expr, enabled, created_at, last_run_at });
+        jobs.push(ScheduledJob { id, name, job_type, target_id, cron_expr, timezone, enabled, created_at, last_run_at });
     }
     Ok(jobs)
 }
 
 fn exec_save_scheduled_job(conn: &Connection, job: &ScheduledJob) -> Result<(), AppError> {
     let sql = "INSERT OR REPLACE INTO _tdw.scheduled_jobs \
-               (id, name, job_type, target_id, cron_expr, enabled, created_at, last_run_at) \
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
+               (id, name, job_type, target_id, cron_expr, timezone, enabled, created_at, last_run_at) \
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
     conn.execute(sql, duckdb::params![
         job.id,
         job.name,
         job.job_type.as_str(),
         job.target_id,
         job.cron_expr,
+        job.timezone,
         job.enabled,
         job.created_at,
         job.last_run_at,

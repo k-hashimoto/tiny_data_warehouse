@@ -29,6 +29,10 @@ impl FromStr for JobType {
     }
 }
 
+fn default_timezone() -> String {
+    "UTC".to_string()
+}
+
 /// A single scheduled job entry stored in _tdw.scheduled_jobs.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ScheduledJob {
@@ -40,6 +44,8 @@ pub struct ScheduledJob {
     pub target_id: String,
     /// Cron expression, e.g. "0 * * * *".
     pub cron_expr: String,
+    #[serde(default = "default_timezone")]
+    pub timezone: String,
     pub enabled: bool,
     pub created_at: String,
     pub last_run_at: Option<String>,
