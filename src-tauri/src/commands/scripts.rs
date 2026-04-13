@@ -1,7 +1,7 @@
+use crate::db::types::QueryResult;
+use crate::db::worker::DbWorker;
 use std::path::{Path, PathBuf};
 use tauri::{Manager, State};
-use crate::db::worker::DbWorker;
-use crate::db::types::QueryResult;
 
 fn scripts_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     let home = app.path().home_dir().map_err(|e| e.to_string())?;
@@ -19,7 +19,9 @@ fn validate_name(name: &str) -> Result<(), String> {
     let mut count = 0usize;
     for component in p.components() {
         match component {
-            std::path::Component::Normal(_) => { count += 1; }
+            std::path::Component::Normal(_) => {
+                count += 1;
+            }
             _ => return Err("Invalid script name".into()),
         }
     }
@@ -30,7 +32,9 @@ fn validate_name(name: &str) -> Result<(), String> {
 }
 
 fn collect_scripts(dir: &Path, base: &Path, names: &mut Vec<String>) {
-    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
     for entry in entries.filter_map(|e| e.ok()) {
         let path = entry.path();
         if path.is_dir() {
@@ -66,7 +70,9 @@ SELECT\n\
 pub fn seed_default_scripts(app: &tauri::AppHandle) {
     let Ok(dir) = scripts_dir(app) else { return };
     let main_dir = dir.join("main");
-    if std::fs::create_dir_all(&main_dir).is_err() { return; }
+    if std::fs::create_dir_all(&main_dir).is_err() {
+        return;
+    }
     let _ = std::fs::write(main_dir.join("welcome.sql"), WELCOME_SQL);
 }
 
@@ -104,7 +110,11 @@ pub fn delete_script(app: tauri::AppHandle, name: String) -> Result<(), String> 
 }
 
 #[tauri::command]
-pub fn rename_script(app: tauri::AppHandle, old_name: String, new_name: String) -> Result<(), String> {
+pub fn rename_script(
+    app: tauri::AppHandle,
+    old_name: String,
+    new_name: String,
+) -> Result<(), String> {
     validate_name(&old_name)?;
     validate_name(&new_name)?;
     let dir = scripts_dir(&app)?;
@@ -121,7 +131,11 @@ pub fn rename_script(app: tauri::AppHandle, old_name: String, new_name: String) 
 
 /// Execute a saved query by name. Used by the scheduler to run saved queries by reference.
 #[tauri::command]
-pub async fn execute_saved_query(app: tauri::AppHandle, name: String, db: State<'_, DbWorker>) -> Result<QueryResult, String> {
+pub async fn execute_saved_query(
+    app: tauri::AppHandle,
+    name: String,
+    db: State<'_, DbWorker>,
+) -> Result<QueryResult, String> {
     let sql = read_script(app, name)?;
     db.query(sql).await
 }
