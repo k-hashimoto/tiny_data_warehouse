@@ -1,6 +1,3 @@
-use std::io::Write;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
 use axum::{
     extract::State as AxumState,
     http::{HeaderMap, StatusCode},
@@ -9,6 +6,9 @@ use axum::{
     Router,
 };
 use serde_json::{json, Value};
+use std::io::Write;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use tauri::Emitter;
 
 use crate::db::worker::DbWorker;
@@ -112,11 +112,16 @@ pub async fn run_mcp_server(
         *guard = Some(shutdown_tx);
     }
 
-    write_log(&log_path, &format!("MCP server ready on http://localhost:{MCP_PORT}/mcp"));
+    write_log(
+        &log_path,
+        &format!("MCP server ready on http://localhost:{MCP_PORT}/mcp"),
+    );
     let _ = app_handle.emit("mcp-server-ready", MCP_PORT);
 
     let result = axum::serve(listener, router)
-        .with_graceful_shutdown(async move { shutdown_rx.await.ok(); })
+        .with_graceful_shutdown(async move {
+            shutdown_rx.await.ok();
+        })
         .await;
 
     write_log(&log_path, "MCP server stopped");
@@ -160,8 +165,14 @@ async fn mcp_handler(
         }
     };
 
-    let response =
-        handle_request(&req, &state.db, &state.active, &state.app_handle, &state.log_path).await;
+    let response = handle_request(
+        &req,
+        &state.db,
+        &state.active,
+        &state.app_handle,
+        &state.log_path,
+    )
+    .await;
 
     match response {
         Some(resp) => (StatusCode::OK, Json(resp)),
@@ -310,7 +321,10 @@ async fn handle_request(
                     }))
                 }
                 Err(e) => {
-                    write_log(log_path, &format!("ERROR {} | {}ms | {}", tool_name, elapsed_ms, e));
+                    write_log(
+                        log_path,
+                        &format!("ERROR {} | {}ms | {}", tool_name, elapsed_ms, e),
+                    );
                     Some(json!({
                         "jsonrpc": "2.0",
                         "id": id,
@@ -335,11 +349,7 @@ async fn handle_request(
 // Tool implementations
 // ---------------------------------------------------------------------------
 
-async fn call_tool(
-    name: &str,
-    args: &Value,
-    db: &DbWorker,
-) -> Result<String, String> {
+async fn call_tool(name: &str, args: &Value, db: &DbWorker) -> Result<String, String> {
     match name {
         "echo" => {
             let message = args
@@ -389,9 +399,11 @@ async fn call_tool(
                 .unwrap_or("main");
             let schema = if database == "dbt" {
                 let dbt_path = utils::dbt_db_path().to_str().unwrap_or("").to_string();
-                db.get_dbt_schema(dbt_path, schema_name.to_string(), table_name.to_string()).await?
+                db.get_dbt_schema(dbt_path, schema_name.to_string(), table_name.to_string())
+                    .await?
             } else {
-                db.get_schema(schema_name.to_string(), table_name.to_string()).await?
+                db.get_schema(schema_name.to_string(), table_name.to_string())
+                    .await?
             };
             serde_json::to_string(&schema).map_err(|e| e.to_string())
         }
@@ -429,10 +441,7 @@ async fn call_tool(
 
             std::fs::create_dir_all(&resolved_dir).map_err(|e| e.to_string())?;
             let out_path = resolved_dir.join(filename);
-            let out_path_str = out_path
-                .to_str()
-                .ok_or("Invalid path")?
-                .replace('\'', "''");
+            let out_path_str = out_path.to_str().ok_or("Invalid path")?.replace('\'', "''");
 
             let copy_sql = format!(
                 "COPY ({}) TO '{}' (HEADER, DELIMITER ',')",
@@ -462,7 +471,10 @@ fn write_log(log_path: &std::path::Path, message: &str) {
             .unwrap_or_default();
         let secs = now.as_secs();
         let (y, mo, d, h, mi, s) = epoch_to_datetime(secs);
-        let _ = writeln!(f, "[{y:04}-{mo:02}-{d:02}T{h:02}:{mi:02}:{s:02}Z] {message}");
+        let _ = writeln!(
+            f,
+            "[{y:04}-{mo:02}-{d:02}T{h:02}:{mi:02}:{s:02}Z] {message}"
+        );
     }
 }
 
@@ -486,7 +498,18 @@ fn epoch_to_datetime(secs: u64) -> (u64, u64, u64, u64, u64, u64) {
     }
     let leap = (y.is_multiple_of(4) && !y.is_multiple_of(100)) || y.is_multiple_of(400);
     let month_days: [u64; 12] = [
-        31, if leap { 29 } else { 28 }, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31,
+        31,
+        if leap { 29 } else { 28 },
+        31,
+        30,
+        31,
+        30,
+        31,
+        31,
+        30,
+        31,
+        30,
+        31,
     ];
     let mut mo = 1u64;
     for &md in &month_days {

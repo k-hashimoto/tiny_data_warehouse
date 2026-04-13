@@ -17,7 +17,10 @@ mod query {
     #[tokio::test]
     async fn test_query_basic() {
         let worker = test_worker();
-        let result = worker.query("SELECT 42 AS answer".to_string()).await.unwrap();
+        let result = worker
+            .query("SELECT 42 AS answer".to_string())
+            .await
+            .unwrap();
         assert_eq!(result.columns, vec!["answer"]);
         assert_eq!(result.rows[0][0], serde_json::json!(42));
     }
@@ -34,7 +37,10 @@ mod query {
     #[tokio::test]
     async fn test_query_truncated_flag() {
         let worker = test_worker();
-        worker.query("CREATE TABLE big AS SELECT range AS id FROM range(1001)".to_string()).await.unwrap();
+        worker
+            .query("CREATE TABLE big AS SELECT range AS id FROM range(1001)".to_string())
+            .await
+            .unwrap();
         let result = worker.query("SELECT * FROM big".to_string()).await.unwrap();
         assert!(result.truncated);
         assert_eq!(result.rows.len(), 1000);
@@ -60,7 +66,10 @@ mod tables {
     #[tokio::test]
     async fn test_list_tables_after_create() {
         let worker = test_worker();
-        worker.query("CREATE TABLE foo (id INTEGER, name VARCHAR)".to_string()).await.unwrap();
+        worker
+            .query("CREATE TABLE foo (id INTEGER, name VARCHAR)".to_string())
+            .await
+            .unwrap();
         let tables = worker.list_tables().await.unwrap();
         assert!(tables.iter().any(|t| t.name == "foo"));
     }
@@ -69,8 +78,14 @@ mod tables {
     #[tokio::test]
     async fn test_get_schema() {
         let worker = test_worker();
-        worker.query("CREATE TABLE bar (id INTEGER, label VARCHAR)".to_string()).await.unwrap();
-        let schema = worker.get_schema("main".to_string(), "bar".to_string()).await.unwrap();
+        worker
+            .query("CREATE TABLE bar (id INTEGER, label VARCHAR)".to_string())
+            .await
+            .unwrap();
+        let schema = worker
+            .get_schema("main".to_string(), "bar".to_string())
+            .await
+            .unwrap();
         let col_names: Vec<&str> = schema.columns.iter().map(|c| c.name.as_str()).collect();
         assert!(col_names.contains(&"id"));
         assert!(col_names.contains(&"label"));
@@ -79,8 +94,17 @@ mod tables {
     #[tokio::test]
     async fn test_preview_table() {
         let worker = test_worker();
-        worker.query("CREATE TABLE t (id INTEGER, name VARCHAR, value INTEGER)".to_string()).await.unwrap();
-        worker.query("INSERT INTO t VALUES (1, 'Alice', 100), (2, 'Bob', 200), (3, 'Carol', 300)".to_string()).await.unwrap();
+        worker
+            .query("CREATE TABLE t (id INTEGER, name VARCHAR, value INTEGER)".to_string())
+            .await
+            .unwrap();
+        worker
+            .query(
+                "INSERT INTO t VALUES (1, 'Alice', 100), (2, 'Bob', 200), (3, 'Carol', 300)"
+                    .to_string(),
+            )
+            .await
+            .unwrap();
         let result = worker.preview_table("t".to_string(), 100).await.unwrap();
         assert_eq!(result.rows.len(), 3);
     }
@@ -201,7 +225,10 @@ mod csv {
         worker.import_csv(opts).await.unwrap();
 
         // reimport_csv を呼んで再インポートされることを確認する
-        let result = worker.reimport_csv("main".to_string(), "sales".to_string()).await.unwrap();
+        let result = worker
+            .reimport_csv("main".to_string(), "sales".to_string())
+            .await
+            .unwrap();
         assert_eq!(result.row_count, 3);
     }
 }
@@ -253,8 +280,14 @@ mod metadata {
     #[tokio::test]
     async fn test_get_table_meta() {
         let worker = test_worker();
-        worker.query("CREATE TABLE meta_test (id INTEGER, name VARCHAR)".to_string()).await.unwrap();
-        let meta = worker.get_table_meta("main".to_string(), "meta_test".to_string()).await.unwrap();
+        worker
+            .query("CREATE TABLE meta_test (id INTEGER, name VARCHAR)".to_string())
+            .await
+            .unwrap();
+        let meta = worker
+            .get_table_meta("main".to_string(), "meta_test".to_string())
+            .await
+            .unwrap();
         assert_eq!(meta.schema_name, "main");
         assert_eq!(meta.table_name, "meta_test");
     }
@@ -262,18 +295,45 @@ mod metadata {
     #[tokio::test]
     async fn test_set_table_comment() {
         let worker = test_worker();
-        worker.query("CREATE TABLE comment_test (id INTEGER)".to_string()).await.unwrap();
-        worker.set_table_comment("main".to_string(), "comment_test".to_string(), "テストコメント".to_string()).await.unwrap();
-        let meta = worker.get_table_meta("main".to_string(), "comment_test".to_string()).await.unwrap();
+        worker
+            .query("CREATE TABLE comment_test (id INTEGER)".to_string())
+            .await
+            .unwrap();
+        worker
+            .set_table_comment(
+                "main".to_string(),
+                "comment_test".to_string(),
+                "テストコメント".to_string(),
+            )
+            .await
+            .unwrap();
+        let meta = worker
+            .get_table_meta("main".to_string(), "comment_test".to_string())
+            .await
+            .unwrap();
         assert_eq!(meta.comment, Some("テストコメント".to_string()));
     }
 
     #[tokio::test]
     async fn test_set_column_comment() {
         let worker = test_worker();
-        worker.query("CREATE TABLE col_comment_test (id INTEGER, name VARCHAR)".to_string()).await.unwrap();
-        worker.set_column_comment("main".to_string(), "col_comment_test".to_string(), "id".to_string(), "IDカラム".to_string()).await.unwrap();
-        let meta = worker.get_table_meta("main".to_string(), "col_comment_test".to_string()).await.unwrap();
+        worker
+            .query("CREATE TABLE col_comment_test (id INTEGER, name VARCHAR)".to_string())
+            .await
+            .unwrap();
+        worker
+            .set_column_comment(
+                "main".to_string(),
+                "col_comment_test".to_string(),
+                "id".to_string(),
+                "IDカラム".to_string(),
+            )
+            .await
+            .unwrap();
+        let meta = worker
+            .get_table_meta("main".to_string(), "col_comment_test".to_string())
+            .await
+            .unwrap();
         let id_col = meta.columns.iter().find(|c| c.name == "id").unwrap();
         assert_eq!(id_col.comment, Some("IDカラム".to_string()));
     }
@@ -289,7 +349,15 @@ mod timestamp {
     #[tokio::test]
     async fn test_touch_table_timestamp() {
         let worker = test_worker();
-        worker.touch_table_timestamp("main".to_string(), "ts_test".to_string(), "adhoc".to_string(), true).await.unwrap();
+        worker
+            .touch_table_timestamp(
+                "main".to_string(),
+                "ts_test".to_string(),
+                "adhoc".to_string(),
+                true,
+            )
+            .await
+            .unwrap();
         let result = worker.query("SELECT COUNT(*) FROM _tdw.table_timestamps WHERE schema_name = 'main' AND table_name = 'ts_test'".to_string()).await.unwrap();
         assert_eq!(result.rows[0][0], serde_json::json!(1));
     }
@@ -302,7 +370,10 @@ mod timestamp {
             ("main".to_string(), "b".to_string()),
         ];
         worker.touch_dbt_timestamps(tables).await.unwrap();
-        let result = worker.query("SELECT COUNT(*) FROM _tdw.table_timestamps WHERE source = 'dbt'".to_string()).await.unwrap();
+        let result = worker
+            .query("SELECT COUNT(*) FROM _tdw.table_timestamps WHERE source = 'dbt'".to_string())
+            .await
+            .unwrap();
         assert_eq!(result.rows[0][0], serde_json::json!(2));
     }
 }
@@ -438,10 +509,19 @@ mod scheduled_jobs {
     #[tokio::test]
     async fn test_delete_scheduled_job() {
         let worker = test_worker();
-        worker.save_scheduled_job(make_job("job-003", "A")).await.unwrap();
-        worker.save_scheduled_job(make_job("job-004", "B")).await.unwrap();
+        worker
+            .save_scheduled_job(make_job("job-003", "A"))
+            .await
+            .unwrap();
+        worker
+            .save_scheduled_job(make_job("job-004", "B"))
+            .await
+            .unwrap();
 
-        worker.delete_scheduled_job("job-003".to_string()).await.unwrap();
+        worker
+            .delete_scheduled_job("job-003".to_string())
+            .await
+            .unwrap();
 
         let jobs = worker.list_scheduled_jobs().await.unwrap();
         assert_eq!(jobs.len(), 1);
