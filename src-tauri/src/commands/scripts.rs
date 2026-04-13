@@ -11,7 +11,7 @@ fn scripts_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
 }
 
 /// All path components must be Normal (no `..`, no absolute, no root).
-fn validate_name(name: &str) -> Result<(), String> {
+pub(crate) fn validate_name(name: &str) -> Result<(), String> {
     if name.is_empty() {
         return Err("Script name must not be empty".into());
     }
