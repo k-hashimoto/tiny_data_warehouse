@@ -13,6 +13,10 @@ use tauri::Emitter;
 
 use crate::db::worker::DbWorker;
 use crate::utils;
+use crate::cron_engine::read_log_entries;
+use crate::commands::scripts::validate_name;
+use crate::scheduler::{JobType, ScheduledJob};
+use uuid::Uuid;
 
 /// Shared lock: true while an MCP tool call is in progress.
 /// Tauri commands check this and reject requests when true.
@@ -53,6 +57,7 @@ struct McpServerState {
     active: Arc<AtomicBool>,
     app_handle: tauri::AppHandle,
     log_path: std::path::PathBuf,
+    home_dir: String,
 }
 
 // ---------------------------------------------------------------------------
@@ -85,6 +90,7 @@ pub async fn run_mcp_server(
         active,
         app_handle: app_handle.clone(),
         log_path: log_path.clone(),
+        home_dir: home_dir.clone(),
     };
 
     let router = Router::new()
@@ -161,7 +167,7 @@ async fn mcp_handler(
     };
 
     let response =
-        handle_request(&req, &state.db, &state.active, &state.app_handle, &state.log_path).await;
+        handle_request(&req, &state.db, &state.active, &state.app_handle, &state.log_path, &state.home_dir).await;
 
     match response {
         Some(resp) => (StatusCode::OK, Json(resp)),
@@ -180,6 +186,7 @@ async fn handle_request(
     active: &Arc<AtomicBool>,
     app_handle: &tauri::AppHandle,
     log_path: &std::path::Path,
+    home_dir: &str,
 ) -> Option<Value> {
     let id = req.get("id").cloned().unwrap_or(Value::Null);
     let method = req.get("method")?.as_str()?;
@@ -276,6 +283,92 @@ async fn handle_request(
                             },
                             "required": ["sql", "export_dir", "filename"]
                         }
+                    },
+                    {
+                        "name": "list_saved_queries",
+                        "description": "~/.tdwh/scripts/ 以下の .sql ファイル一覧をスクリプト名（拡張子なし）の配列で返す。",
+                        "inputSchema": { "type": "object", "properties": {} }
+                    },
+                    {
+                        "name": "get_saved_query",
+                        "description": "指定したスクリプト名の SQL テキストを返す。",
+                        "inputSchema": {
+                            "type": "object",
+                            "properties": {
+                                "name": { "type": "string", "description": "スクリプト名（拡張子なし、サブディレクトリ区切りは /）" }
+                            },
+                            "required": ["name"]
+                        }
+                    },
+                    {
+                        "name": "save_query",
+                        "description": "スクリプト名と SQL テキストを受け取り ~/.tdwh/scripts/<name>.sql に保存する。",
+                        "inputSchema": {
+                            "type": "object",
+                            "properties": {
+                                "name": { "type": "string" },
+                                "sql":  { "type": "string" }
+                            },
+                            "required": ["name", "sql"]
+                        }
+                    },
+                    {
+                        "name": "list_scheduled_jobs",
+                        "description": "_tdw.scheduled_jobs テーブルの全ジョブを返す。",
+                        "inputSchema": { "type": "object", "properties": {} }
+                    },
+                    {
+                        "name": "get_scheduled_job",
+                        "description": "指定 ID のジョブ詳細を返す。",
+                        "inputSchema": {
+                            "type": "object",
+                            "properties": {
+                                "id": { "type": "string" }
+                            },
+                            "required": ["id"]
+                        }
+                    },
+                    {
+                        "name": "save_scheduled_job",
+                        "description": "ジョブを作成または更新する（id 省略時は新規作成として UUID を自動生成）。",
+                        "inputSchema": {
+                            "type": "object",
+                            "properties": {
+                                "id":         { "type": "string", "description": "省略または空文字で新規作成" },
+                                "name":       { "type": "string" },
+                                "job_type":   { "type": "string", "description": "\"Query\" または \"Import\"" },
+                                "target_id":  { "type": "string" },
+                                "cron_expr":  { "type": "string" },
+                                "timezone":   { "type": "string", "description": "省略時は UTC" },
+                                "enabled":    { "type": "boolean" },
+                                "created_at": { "type": "string", "description": "省略時は現在時刻を自動設定" },
+                                "last_run_at":{ "type": "string" }
+                            },
+                            "required": ["name", "job_type", "target_id", "cron_expr", "enabled"]
+                        }
+                    },
+                    {
+                        "name": "delete_scheduled_job",
+                        "description": "指定 ID のジョブを削除する。",
+                        "inputSchema": {
+                            "type": "object",
+                            "properties": {
+                                "id": { "type": "string" }
+                            },
+                            "required": ["id"]
+                        }
+                    },
+                    {
+                        "name": "get_scheduler_logs",
+                        "description": "指定スクリプト名のスケジューラログを返す。date は YYYYMMDD 形式（省略時は UTC 当日）。",
+                        "inputSchema": {
+                            "type": "object",
+                            "properties": {
+                                "script_name": { "type": "string" },
+                                "date":        { "type": "string", "description": "YYYYMMDD 形式。省略時は UTC 当日" }
+                            },
+                            "required": ["script_name"]
+                        }
                     }
                 ]
             }
@@ -292,7 +385,7 @@ async fn handle_request(
             write_log(log_path, &format!("CALL  {} args={}", tool_name, args));
             let start = std::time::Instant::now();
 
-            let result = call_tool(tool_name, &args, db).await;
+            let result = call_tool(tool_name, &args, db, home_dir).await;
             let elapsed_ms = start.elapsed().as_millis();
 
             active.store(false, Ordering::SeqCst);
@@ -339,6 +432,7 @@ async fn call_tool(
     name: &str,
     args: &Value,
     db: &DbWorker,
+    home_dir: &str,
 ) -> Result<String, String> {
     match name {
         "echo" => {
@@ -443,6 +537,102 @@ async fn call_tool(
             Ok(out_path.to_str().unwrap_or("").to_string())
         }
 
+        "list_saved_queries" => {
+            let scripts_dir = std::path::PathBuf::from(home_dir)
+                .join(".tdwh")
+                .join("scripts");
+            let mut names = Vec::new();
+            collect_scripts_mcp(&scripts_dir, &scripts_dir, &mut names);
+            names.sort();
+            serde_json::to_string(&names).map_err(|e| e.to_string())
+        }
+
+        "get_saved_query" => {
+            let name = args.get("name").and_then(|v| v.as_str()).ok_or("Missing argument: name")?;
+            validate_name(name)?;
+            let path = std::path::PathBuf::from(home_dir)
+                .join(".tdwh")
+                .join("scripts")
+                .join(format!("{name}.sql"));
+            std::fs::read_to_string(&path).map_err(|e| format!("Failed to read script: {e}"))
+        }
+
+        "save_query" => {
+            let name = args.get("name").and_then(|v| v.as_str()).ok_or("Missing argument: name")?;
+            let sql = args.get("sql").and_then(|v| v.as_str()).ok_or("Missing argument: sql")?;
+            validate_name(name)?;
+            let path = std::path::PathBuf::from(home_dir)
+                .join(".tdwh")
+                .join("scripts")
+                .join(format!("{name}.sql"));
+            if let Some(parent) = path.parent() {
+                std::fs::create_dir_all(parent).map_err(|e| format!("Failed to create directory: {e}"))?;
+            }
+            std::fs::write(&path, sql).map_err(|e| format!("Failed to write script: {e}"))?;
+            Ok(format!("Saved: {name}.sql"))
+        }
+
+        "list_scheduled_jobs" => {
+            let jobs = db.list_scheduled_jobs().await?;
+            serde_json::to_string(&jobs).map_err(|e| e.to_string())
+        }
+
+        "get_scheduled_job" => {
+            let id = args.get("id").and_then(|v| v.as_str()).ok_or("Missing argument: id")?;
+            let jobs = db.list_scheduled_jobs().await?;
+            let job = jobs.into_iter().find(|j| j.id == id)
+                .ok_or_else(|| format!("Job not found: {id}"))?;
+            serde_json::to_string(&job).map_err(|e| e.to_string())
+        }
+
+        "save_scheduled_job" => {
+            let id = args.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let id = if id.is_empty() { Uuid::new_v4().to_string() } else { id };
+            let name = args.get("name").and_then(|v| v.as_str()).ok_or("Missing argument: name")?.to_string();
+            let job_type_str = args.get("job_type").and_then(|v| v.as_str()).ok_or("Missing argument: job_type")?;
+            let job_type: JobType = job_type_str.parse()?;
+            let target_id = args.get("target_id").and_then(|v| v.as_str()).ok_or("Missing argument: target_id")?.to_string();
+            let cron_expr = args.get("cron_expr").and_then(|v| v.as_str()).ok_or("Missing argument: cron_expr")?.to_string();
+            let timezone = args.get("timezone").and_then(|v| v.as_str()).unwrap_or("UTC").to_string();
+            let enabled = args.get("enabled").and_then(|v| v.as_bool()).ok_or("Missing argument: enabled")?;
+            let created_at = args.get("created_at").and_then(|v| v.as_str()).filter(|s| !s.is_empty())
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| {
+                    let secs = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_secs();
+                    let (y, mo, d, h, mi, s) = epoch_to_datetime(secs);
+                    format!("{y:04}-{mo:02}-{d:02}T{h:02}:{mi:02}:{s:02}Z")
+                });
+            let last_run_at = args.get("last_run_at").and_then(|v| v.as_str()).filter(|s| !s.is_empty()).map(|s| s.to_string());
+            let job = ScheduledJob { id, name, job_type, target_id, cron_expr, timezone, enabled, created_at, last_run_at };
+            db.save_scheduled_job(job).await?;
+            Ok("Saved".to_string())
+        }
+
+        "delete_scheduled_job" => {
+            let id = args.get("id").and_then(|v| v.as_str()).ok_or("Missing argument: id")?.to_string();
+            db.delete_scheduled_job(id).await?;
+            Ok("Deleted".to_string())
+        }
+
+        "get_scheduler_logs" => {
+            let script_name = args.get("script_name").and_then(|v| v.as_str()).ok_or("Missing argument: script_name")?;
+            let date_str = args.get("date").and_then(|v| v.as_str())
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| {
+                    let secs = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_secs();
+                    let (y, mo, d, _, _, _) = epoch_to_datetime(secs);
+                    format!("{y:04}{mo:02}{d:02}")
+                });
+            let entries = read_log_entries(home_dir, script_name, &date_str);
+            serde_json::to_string(&entries).map_err(|e| e.to_string())
+        }
+
         _ => Err(format!("Unknown tool: {name}")),
     }
 }
@@ -463,6 +653,22 @@ fn write_log(log_path: &std::path::Path, message: &str) {
         let secs = now.as_secs();
         let (y, mo, d, h, mi, s) = epoch_to_datetime(secs);
         let _ = writeln!(f, "[{y:04}-{mo:02}-{d:02}T{h:02}:{mi:02}:{s:02}Z] {message}");
+    }
+}
+
+fn collect_scripts_mcp(dir: &std::path::Path, base: &std::path::Path, names: &mut Vec<String>) {
+    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    for entry in entries.filter_map(|e| e.ok()) {
+        let path = entry.path();
+        if path.is_dir() {
+            collect_scripts_mcp(&path, base, names);
+        } else if path.extension().and_then(|s| s.to_str()) == Some("sql") {
+            if let Ok(rel) = path.strip_prefix(base) {
+                if let Some(s) = rel.with_extension("").to_str() {
+                    names.push(s.replace('\\', "/"));
+                }
+            }
+        }
     }
 }
 
