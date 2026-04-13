@@ -13,6 +13,8 @@ interface SchedulerLogEntry {
   finished_at: string;
   success: boolean;
   error_message: string | null;
+  retry_count: number;
+  is_final_attempt: boolean;
 }
 
 export function SchedulerPanel() {
@@ -197,9 +199,19 @@ export function SchedulerPanel() {
                         {" → "}
                         {entry.finished_at.replace("T", " ").replace("Z", " UTC")}
                       </span>
+                      {entry.retry_count > 0 && (
+                        <span className="text-xs text-orange-500">
+                          [リトライ {entry.retry_count}/2]
+                        </span>
+                      )}
                       {entry.error_message && (
                         <span className="text-xs text-destructive break-all">
                           {entry.error_message}
+                        </span>
+                      )}
+                      {!entry.success && entry.is_final_attempt && entry.retry_count > 0 && (
+                        <span className="text-xs text-orange-500 font-semibold">
+                          すべてのリトライが失敗しました
                         </span>
                       )}
                     </div>
