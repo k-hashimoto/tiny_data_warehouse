@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef, useCallback } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useAppStore } from "@/store/appStore";
 import { Button } from "@/components/ui/button";
@@ -25,7 +25,7 @@ export function ScriptList({ isCollapsed, onToggleCollapse }: Props) {
   const scripts = useAppStore((s) => s.scripts);
   const setScripts = useAppStore((s) => s.setScripts);
   const setSchedulerOpen = useAppStore((s) => s.setSchedulerOpen);
-  const schedulerOpen = useAppStore((s) => s.schedulerOpen);
+  const scheduledJobs = useAppStore((s) => s.scheduledJobs);
   const sql = useAppStore((s) => s.sql);
   const tabs = useAppStore((s) => s.tabs);
   const activeTabId = useAppStore((s) => s.activeTabId);
@@ -35,7 +35,10 @@ export function ScriptList({ isCollapsed, onToggleCollapse }: Props) {
   const renameTab = useAppStore((s) => s.renameTab);
   const runQuery = useRunQuery();
 
-  const [scheduledScripts, setScheduledScripts] = useState<Set<string>>(new Set());
+  const scheduledScripts = useMemo(
+    () => new Set(scheduledJobs.map((j) => j.target_id)),
+    [scheduledJobs]
+  );
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
   const [contextMenu, setContextMenu] = useState<ContextMenu | null>(null);
   const [folderContextMenu, setFolderContextMenu] = useState<{ x: number; y: number; folder: string } | null>(null);
@@ -54,22 +57,9 @@ export function ScriptList({ isCollapsed, onToggleCollapse }: Props) {
     } catch (_) {}
   }
 
-  const refreshScheduled = useCallback(async () => {
-    try {
-      const jobs = await invoke<{ target_id: string }[]>("list_scheduled_jobs");
-      setScheduledScripts(new Set(jobs.map((j) => j.target_id)));
-    } catch (_) {}
-  }, []);
-
   useEffect(() => {
     refresh();
-    refreshScheduled();
   }, []);
-
-  // Schedulerタブが閉じられたらアイコン状態を更新
-  useEffect(() => {
-    if (!schedulerOpen) refreshScheduled();
-  }, [schedulerOpen, refreshScheduled]);
 
   useEffect(() => {
     if (!contextMenu) return;
