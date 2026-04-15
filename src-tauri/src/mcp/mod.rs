@@ -390,7 +390,7 @@ async fn handle_request(
             write_log(log_path, &format!("CALL  {} args={}", tool_name, args));
             let start = std::time::Instant::now();
 
-            let result = call_tool(tool_name, &args, db, home_dir).await;
+            let result = call_tool(tool_name, &args, db, home_dir, app_handle).await;
             let elapsed_ms = start.elapsed().as_millis();
 
             active.store(false, Ordering::SeqCst);
@@ -441,6 +441,7 @@ async fn call_tool(
     args: &Value,
     db: &DbWorker,
     home_dir: &str,
+    app_handle: &tauri::AppHandle,
 ) -> Result<String, String> {
     match name {
         "echo" => {
@@ -593,8 +594,9 @@ async fn call_tool(
         }
 
         "save_scheduled_job" => {
-            let id = args.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
-            let id = if id.is_empty() { Uuid::new_v4().to_string() } else { id };
+            let original_id = args.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let is_new = original_id.is_empty();
+            let id = if is_new { Uuid::new_v4().to_string() } else { original_id };
             let name = args.get("name").and_then(|v| v.as_str()).ok_or("Missing argument: name")?.to_string();
             let job_type_str = args.get("job_type").and_then(|v| v.as_str()).ok_or("Missing argument: job_type")?;
             let job_type: JobType = job_type_str.parse()?;
@@ -615,12 +617,16 @@ async fn call_tool(
             let last_run_at = args.get("last_run_at").and_then(|v| v.as_str()).filter(|s| !s.is_empty()).map(|s| s.to_string());
             let job = ScheduledJob { id, name, job_type, target_id, cron_expr, timezone, enabled, created_at, last_run_at };
             db.save_scheduled_job(job).await?;
+            if is_new {
+                let _ = app_handle.emit("scheduled-jobs-changed", ());
+            }
             Ok("Saved".to_string())
         }
 
         "delete_scheduled_job" => {
             let id = args.get("id").and_then(|v| v.as_str()).ok_or("Missing argument: id")?.to_string();
             db.delete_scheduled_job(id).await?;
+            let _ = app_handle.emit("scheduled-jobs-changed", ());
             Ok("Deleted".to_string())
         }
 

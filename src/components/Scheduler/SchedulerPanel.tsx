@@ -20,6 +20,7 @@ interface SchedulerLogEntry {
 export function SchedulerPanel() {
   const activeTabId = useAppStore((s) => s.activeTabId);
   const linkedScript = useAppStore((s) => s.getActiveTab().linkedScript);
+  const setScheduledJobs = useAppStore((s) => s.setScheduledJobs);
 
   const [job, setJob] = useState<ScheduledJobPayload | null>(null);
   const [logs, setLogs] = useState<SchedulerLogEntry[]>([]);
@@ -59,11 +60,16 @@ export function SchedulerPanel() {
   }, [activeTabId, linkedScript, loadJob, loadLogs]);
 
   async function handleSave(payload: ScheduledJobPayload) {
+    const isNew = job === null;
     try {
       // 既存ジョブがあれば同じIDで上書き（1スクリプト1ジョブ）
       const toSave = job ? { ...payload, id: job.id } : payload;
       await invoke("save_scheduled_job", { job: toSave });
       await invoke("reload_scheduler");
+      if (isNew) {
+        const all = await invoke<ScheduledJobPayload[]>("list_scheduled_jobs");
+        setScheduledJobs(all);
+      }
       if (linkedScript) {
         await loadJob(linkedScript);
         await loadLogs(linkedScript);
@@ -78,6 +84,8 @@ export function SchedulerPanel() {
     try {
       await invoke("delete_scheduled_job", { id: job.id });
       await invoke("reload_scheduler");
+      const all = await invoke<ScheduledJobPayload[]>("list_scheduled_jobs");
+      setScheduledJobs(all);
       setJob(null);
       setLogs([]);
     } catch (e) {
