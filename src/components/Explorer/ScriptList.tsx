@@ -103,6 +103,11 @@ export function ScriptList({ isCollapsed, onToggleCollapse }: Props) {
     const sortedFolders = [...folderMap.keys()].sort();
     return { rootScripts: root, folders: sortedFolders, folderScripts: folderMap };
   }, [scripts]);
+  const scheduledFolderKey = "__scheduled__";
+  const scheduledItems = useMemo(
+    () => [...scheduledScripts].sort(),
+    [scheduledScripts]
+  );
 
   function toggleFolder(folder: string) {
     setExpandedFolders((prev) => {
@@ -215,7 +220,7 @@ export function ScriptList({ isCollapsed, onToggleCollapse }: Props) {
     }
   }
 
-  function ScriptItem({ name }: { name: string }) {
+  function ScriptItem({ name, showFullName = false }: { name: string; showFullName?: boolean }) {
     const isActive = tabs.find((t) => t.id === activeTabId)?.linkedScript === name;
     const isRenaming = renamingScript === name;
     const isScheduled = scheduledScripts.has(name);
@@ -255,7 +260,7 @@ export function ScriptList({ isCollapsed, onToggleCollapse }: Props) {
             onDoubleClick={() => startRename(name)}
             title={`Load "${name}" into editor (double-click to rename)`}
           >
-            {displayName(name)}
+            {showFullName ? name : displayName(name)}
           </button>
         )}
 
@@ -310,6 +315,28 @@ export function ScriptList({ isCollapsed, onToggleCollapse }: Props) {
       <div className="flex-1 overflow-y-auto">
         {scripts.length === 0 && (
           <p className="text-xs text-muted-foreground px-3 py-2">No scripts saved</p>
+        )}
+
+        {/* Virtual folder: scheduled */}
+        {scheduledItems.length > 0 && (
+          <div>
+            <div
+              className="group flex items-center gap-1 px-1 py-0.5 hover:bg-accent/40 cursor-pointer"
+              onClick={() => toggleFolder(scheduledFolderKey)}
+            >
+              {expandedFolders.has(scheduledFolderKey)
+                ? <ChevronDownIcon className="h-3 w-3 text-muted-foreground shrink-0" />
+                : <ChevronRightIcon className="h-3 w-3 text-muted-foreground shrink-0" />}
+              <ClockIcon className="h-3 w-3 text-blue-500 shrink-0" />
+              <span className="text-xs font-semibold text-muted-foreground">scheduled</span>
+              <span className="ml-auto text-[10px] text-muted-foreground pr-1">{scheduledItems.length}</span>
+            </div>
+            {expandedFolders.has(scheduledFolderKey) && scheduledItems.map((name) => (
+              <div key={`scheduled-${name}`} className="ml-3">
+                <ScriptItem name={name} showFullName />
+              </div>
+            ))}
+          </div>
         )}
 
         {/* Root-level scripts */}
