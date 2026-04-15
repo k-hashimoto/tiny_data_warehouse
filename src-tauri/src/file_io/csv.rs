@@ -8,7 +8,11 @@ pub fn build_read_expr(opts: &CsvImportOptions) -> String {
         "semicolon" => ";",
         _ => ",",
     };
-    let encoding = if opts.encoding == "sjis" { "LATIN1" } else { "UTF-8" };
+    let encoding = if opts.encoding == "sjis" {
+        "LATIN1"
+    } else {
+        "UTF-8"
+    };
     format!(
         "read_csv('{}', header={}, delim='{}', encoding='{}')",
         path,

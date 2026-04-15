@@ -14,6 +14,7 @@ import { SchedulerPanel } from "@/components/Scheduler/SchedulerPanel";
 import { StatusBar } from "@/components/StatusBar";
 import { QueryHistory } from "@/components/QueryHistory/QueryHistory";
 import { useAppStore } from "@/store/appStore";
+import type { ScheduledJob } from "@/store/appStore";
 import { useRunQuery } from "@/hooks/useRunQuery";
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { SunIcon, MoonIcon, CalendarIcon } from "lucide-react";
@@ -32,6 +33,7 @@ function App() {
   const tabs = useAppStore((s) => s.tabs);
   const activeTabId = useAppStore((s) => s.activeTabId);
   const updateTabSql = useAppStore((s) => s.updateTabSql);
+  const setScheduledJobs = useAppStore((s) => s.setScheduledJobs);
   const runQuery = useRunQuery();
   const [mcpActive, setMcpActive] = useState(false);
   useKeyboardShortcuts();
@@ -43,6 +45,10 @@ function App() {
     if (activeTab) runQuery(activeTab.sql);
     // yml → DuckDB COMMENT 同期（起動時）
     invoke("sync_yml_metadata").catch(() => {});
+    // スケジュールジョブの初期ロード
+    invoke<ScheduledJob[]>("list_scheduled_jobs")
+      .then((jobs) => setScheduledJobs(jobs))
+      .catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -79,12 +85,17 @@ function App() {
     const unlisten3 = listen("mcp-server-ready", () => setMcpServerReady(true));
     const unlisten4 = listen("mcp-server-error", () => setMcpServerReady(false));
     const unlisten5 = listen("mcp-server-stopped", () => setMcpServerReady(false));
+    const unlistenJobs = listen("scheduled-jobs-changed", async () => {
+      const jobs = await invoke<ScheduledJob[]>("list_scheduled_jobs");
+      setScheduledJobs(jobs);
+    });
     return () => {
       unlisten1.then((f) => f());
       unlisten2.then((f) => f());
       unlisten3.then((f) => f());
       unlisten4.then((f) => f());
       unlisten5.then((f) => f());
+      unlistenJobs.then((f) => f());
     };
   }, []);
 

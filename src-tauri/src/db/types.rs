@@ -6,7 +6,7 @@ pub struct QueryResult {
     pub rows: Vec<Vec<serde_json::Value>>,
     pub row_count: usize,
     pub elapsed_ms: u128,
-    pub truncated: bool,   // true if rows were limited to RESULT_ROW_LIMIT
+    pub truncated: bool, // true if rows were limited to RESULT_ROW_LIMIT
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -39,8 +39,8 @@ pub struct CsvImportOptions {
     pub schema_name: String,
     pub has_header: bool,
     pub delimiter: String,
-    pub encoding: String,   // "utf8" | "sjis"
-    pub if_exists: String,  // "replace" | "append" | "fail"
+    pub encoding: String,  // "utf8" | "sjis"
+    pub if_exists: String, // "replace" | "append" | "fail"
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -54,7 +54,7 @@ pub struct JsonImportOptions {
     pub file_path: String,
     pub table_name: String,
     pub schema_name: String,
-    pub if_exists: String,  // "replace" | "append" | "fail"
+    pub if_exists: String, // "replace" | "append" | "fail"
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

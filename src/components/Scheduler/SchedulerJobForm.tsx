@@ -13,11 +13,12 @@ export interface ScheduledJobPayload {
   last_run_at: string | null;
 }
 
-export type ScheduleType = "every_n_minutes" | "daily" | "weekly" | "monthly";
+export type ScheduleType = "every_n_minutes" | "every_n_hours" | "daily" | "weekly" | "monthly";
 
 export interface ScheduleForm {
   type: ScheduleType;
   intervalMinutes?: 15 | 30 | 60;
+  intervalHours?: 2 | 4 | 6 | 8 | 12;
   weekday?: number;   // 0=Sun ... 6=Sat
   monthDay?: number;  // 1-28
   hour?: number;
@@ -38,6 +39,10 @@ export function formToCronExpr(form: ScheduleForm): string {
     case "every_n_minutes": {
       const n = form.intervalMinutes ?? 15;
       return n === 60 ? "0 * * * *" : `*/${n} * * * *`;
+    }
+    case "every_n_hours": {
+      const n = form.intervalHours ?? 2;
+      return `0 */${n} * * *`;
     }
     case "daily": {
       const h = jst ? toUtcHour(form.hour ?? 0) : (form.hour ?? 0);
@@ -78,6 +83,13 @@ export function cronExprToForm(expr: string, timezone?: string): ScheduleForm {
   // 毎 N 分パターン: */15 * * * * or */30 * * * * or 0 * * * *
   if (minPart === "0" && hourPart === "*" && dayPart === "*" && wdPart === "*") {
     return { type: "every_n_minutes", intervalMinutes: 60, timezone: tz };
+  }
+  // 毎 N 時間パターン: 0 */N * * *
+  if (minPart === "0" && hourPart.startsWith("*/") && dayPart === "*" && wdPart === "*") {
+    const n = parseInt(hourPart.slice(2), 10);
+    if (n === 2 || n === 4 || n === 6 || n === 8 || n === 12) {
+      return { type: "every_n_hours", intervalHours: n as 2 | 4 | 6 | 8 | 12, timezone: tz };
+    }
   }
   if (minPart.startsWith("*/") && hourPart === "*" && dayPart === "*" && wdPart === "*") {
     const n = parseInt(minPart.slice(2), 10);
@@ -203,10 +215,11 @@ export function SchedulerJobForm({ scriptName, existingJob, onSave, onCancel }: 
           className="bg-background border rounded px-2 py-1 text-xs outline-none focus:ring-1 focus:ring-primary"
           value={form.type}
           onChange={(e) =>
-            setForm({ type: e.target.value as ScheduleType, intervalMinutes: 15, timezone: form.timezone })
+            setForm({ type: e.target.value as ScheduleType, intervalMinutes: 15, intervalHours: 2, timezone: form.timezone })
           }
         >
           <option value="every_n_minutes">毎 N 分</option>
+          <option value="every_n_hours">毎 N 時間</option>
           <option value="daily">毎日</option>
           <option value="weekly">毎週</option>
           <option value="monthly">毎月</option>
@@ -226,6 +239,25 @@ export function SchedulerJobForm({ scriptName, existingJob, onSave, onCancel }: 
             <option value={15}>15 分ごと</option>
             <option value={30}>30 分ごと</option>
             <option value={60}>60 分ごと（毎時）</option>
+          </select>
+        </div>
+      )}
+
+      {form.type === "every_n_hours" && (
+        <div className="flex flex-col gap-1">
+          <label className="text-muted-foreground font-medium">間隔</label>
+          <select
+            className="bg-background border rounded px-2 py-1 text-xs outline-none focus:ring-1 focus:ring-primary"
+            value={form.intervalHours ?? 2}
+            onChange={(e) =>
+              setForm({ ...form, intervalHours: parseInt(e.target.value, 10) as 2 | 4 | 6 | 8 | 12 })
+            }
+          >
+            <option value={2}>2 時間ごと</option>
+            <option value={4}>4 時間ごと</option>
+            <option value={6}>6 時間ごと</option>
+            <option value={8}>8 時間ごと</option>
+            <option value={12}>12 時間ごと</option>
           </select>
         </div>
       )}

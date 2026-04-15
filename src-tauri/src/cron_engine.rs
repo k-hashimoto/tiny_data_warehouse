@@ -1,8 +1,8 @@
 use std::collections::HashSet;
 use std::io::Write;
 use std::path::PathBuf;
-use std::sync::Arc;
 use std::sync::atomic::Ordering;
+use std::sync::Arc;
 
 use cron::Schedule;
 use serde::{Deserialize, Serialize};
@@ -20,7 +20,15 @@ pub struct SchedulerLogEntry {
     pub finished_at: String,
     pub success: bool,
     pub error_message: Option<String>,
+    #[serde(default)]
+    pub retry_count: u32,
+    #[serde(default)]
+    pub is_final_attempt: bool,
 }
+
+const MAX_RETRIES: u32 = 2;
+const RETRY_INTERVAL_SECS: u64 = 60;
+const JOB_TIMEOUT_SECS: u64 = 300;
 
 /// スケジューラエンジン。Arc<Mutex<>> で共有するが、
 /// reload_tx のみ内部変異が必要なため Mutex を使わず watch チャネルで制御する。
@@ -120,8 +128,9 @@ impl CronEngine {
                             let home = self.home_dir.clone();
                             let mcp_active = self.mcp_lock.0.clone();
                             let executing = self.executing.clone();
+                            let cancel_rx = reload_rx.clone();
                             tauri::async_runtime::spawn(async move {
-                                execute_job(&job, &db, &home, &mcp_active, &executing).await;
+                                execute_job(&job, &db, &home, &mcp_active, &executing, cancel_rx).await;
                             });
                         }
                         // 次のループへ（ジョブ一覧を再ロード）
@@ -204,17 +213,32 @@ fn epoch_to_datetime(secs: u64) -> (u64, u64, u64, u64, u64, u64) {
     loop {
         let leap = (y.is_multiple_of(4) && !y.is_multiple_of(100)) || y.is_multiple_of(400);
         let dy = if leap { 366 } else { 365 };
-        if remaining < dy { break; }
+        if remaining < dy {
+            break;
+        }
         remaining -= dy;
         y += 1;
     }
     let leap = (y.is_multiple_of(4) && !y.is_multiple_of(100)) || y.is_multiple_of(400);
     let month_days: [u64; 12] = [
-        31, if leap { 29 } else { 28 }, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31,
+        31,
+        if leap { 29 } else { 28 },
+        31,
+        30,
+        31,
+        30,
+        31,
+        31,
+        30,
+        31,
+        30,
+        31,
     ];
     let mut mo = 1u64;
     for &md in &month_days {
-        if remaining < md { break; }
+        if remaining < md {
+            break;
+        }
         remaining -= md;
         mo += 1;
     }
@@ -228,6 +252,7 @@ async fn execute_job(
     home_dir: &str,
     mcp_active: &Arc<std::sync::atomic::AtomicBool>,
     executing: &Arc<std::sync::Mutex<HashSet<String>>>,
+    mut cancel_rx: tokio::sync::watch::Receiver<()>,
 ) {
     let started_at = current_epoch_secs();
 
@@ -241,6 +266,8 @@ async fn execute_job(
             finished_at: epoch_to_iso(finished_at),
             success: false,
             error_message: Some("Skipped: MCP operation in progress".to_string()),
+            retry_count: 0,
+            is_final_attempt: true,
         };
         write_log_entry(home_dir, &job.target_id, started_at, &entry);
         return;
@@ -258,6 +285,8 @@ async fn execute_job(
                 finished_at: epoch_to_iso(finished_at),
                 success: false,
                 error_message: Some("Skipped: already running".to_string()),
+                retry_count: 0,
+                is_final_attempt: true,
             };
             write_log_entry(home_dir, &job.target_id, started_at, &entry);
             return;
@@ -282,54 +311,84 @@ async fn execute_job(
                 finished_at: epoch_to_iso(finished_at),
                 success: false,
                 error_message: Some(format!("Failed to read script: {e}")),
+                retry_count: 0,
+                is_final_attempt: true,
             };
             write_log_entry(home_dir, &job.target_id, started_at, &entry);
             // 実行完了としてジョブIDを削除
-            executing.lock().unwrap_or_else(|e| e.into_inner()).remove(&job.id);
+            executing
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .remove(&job.id);
             return;
         }
     };
 
-    // クエリを実行する（300秒タイムアウト）
-    const JOB_TIMEOUT_SECS: u64 = 300;
-    let result = tokio::time::timeout(
-        tokio::time::Duration::from_secs(JOB_TIMEOUT_SECS),
-        db.query(sql),
-    )
-    .await;
-    let finished_at = current_epoch_secs();
+    for attempt in 0..=MAX_RETRIES {
+        let is_final_attempt = attempt == MAX_RETRIES;
+        let attempt_started_at = current_epoch_secs();
 
-    let entry = match result {
-        Ok(Ok(_)) => SchedulerLogEntry {
-            job_id: job.id.clone(),
-            script_name: job.target_id.clone(),
-            started_at: epoch_to_iso(started_at),
-            finished_at: epoch_to_iso(finished_at),
-            success: true,
-            error_message: None,
-        },
-        Ok(Err(e)) => SchedulerLogEntry {
-            job_id: job.id.clone(),
-            script_name: job.target_id.clone(),
-            started_at: epoch_to_iso(started_at),
-            finished_at: epoch_to_iso(finished_at),
-            success: false,
-            error_message: Some(e),
-        },
-        Err(_elapsed) => SchedulerLogEntry {
-            job_id: job.id.clone(),
-            script_name: job.target_id.clone(),
-            started_at: epoch_to_iso(started_at),
-            finished_at: epoch_to_iso(finished_at),
-            success: false,
-            error_message: Some("Job timed out after 300s".to_string()),
-        },
-    };
+        // クエリを実行する（300秒タイムアウト）
+        let result = tokio::time::timeout(
+            tokio::time::Duration::from_secs(JOB_TIMEOUT_SECS),
+            db.query(sql.clone()),
+        )
+        .await;
+        let finished_at = current_epoch_secs();
 
-    write_log_entry(home_dir, &job.target_id, started_at, &entry);
+        let entry = match result {
+            Ok(Ok(_)) => SchedulerLogEntry {
+                job_id: job.id.clone(),
+                script_name: job.target_id.clone(),
+                started_at: epoch_to_iso(attempt_started_at),
+                finished_at: epoch_to_iso(finished_at),
+                success: true,
+                error_message: None,
+                retry_count: attempt,
+                is_final_attempt: true,
+            },
+            Ok(Err(e)) => SchedulerLogEntry {
+                job_id: job.id.clone(),
+                script_name: job.target_id.clone(),
+                started_at: epoch_to_iso(attempt_started_at),
+                finished_at: epoch_to_iso(finished_at),
+                success: false,
+                error_message: Some(e),
+                retry_count: attempt,
+                is_final_attempt,
+            },
+            Err(_elapsed) => SchedulerLogEntry {
+                job_id: job.id.clone(),
+                script_name: job.target_id.clone(),
+                started_at: epoch_to_iso(attempt_started_at),
+                finished_at: epoch_to_iso(finished_at),
+                success: false,
+                error_message: Some("Job timed out after 300s".to_string()),
+                retry_count: attempt,
+                is_final_attempt,
+            },
+        };
+
+        let should_stop = entry.success || is_final_attempt;
+        write_log_entry(home_dir, &job.target_id, attempt_started_at, &entry);
+        if should_stop {
+            break;
+        }
+
+        tokio::select! {
+            _ = tokio::time::sleep(tokio::time::Duration::from_secs(RETRY_INTERVAL_SECS)) => {}
+            _ = cancel_rx.changed() => {
+                executing.lock().unwrap_or_else(|e| e.into_inner()).remove(&job.id);
+                return;
+            }
+        }
+    }
 
     // 成功・失敗問わず実行完了としてジョブIDを削除
-    executing.lock().unwrap_or_else(|e| e.into_inner()).remove(&job.id);
+    executing
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .remove(&job.id);
 }
 
 /// ログエントリを JSONL 形式でファイルに追記する。
@@ -359,7 +418,11 @@ fn write_log_entry(home_dir: &str, script_name: &str, epoch_secs: u64, entry: &S
 }
 
 /// ログファイルを読み込んで SchedulerLogEntry の Vec を返す。
-pub fn read_log_entries(home_dir: &str, script_name: &str, date_str: &str) -> Vec<SchedulerLogEntry> {
+pub fn read_log_entries(
+    home_dir: &str,
+    script_name: &str,
+    date_str: &str,
+) -> Vec<SchedulerLogEntry> {
     let log_path = PathBuf::from(home_dir)
         .join(".tdwh")
         .join("logs")
@@ -411,11 +474,50 @@ mod tests {
             finished_at: "2026-04-07T12:00:01Z".to_string(),
             success: true,
             error_message: None,
+            retry_count: 0,
+            is_final_attempt: true,
         };
         let line = serde_json::to_string(&entry).unwrap();
         let parsed: SchedulerLogEntry = serde_json::from_str(&line).unwrap();
         assert_eq!(parsed.job_id, "job-1");
         assert!(parsed.success);
+        assert_eq!(parsed.retry_count, 0);
+        assert!(parsed.is_final_attempt);
+    }
+
+    #[test]
+    fn test_log_entry_with_retry_fields() {
+        let entry = SchedulerLogEntry {
+            job_id: "job-2".to_string(),
+            script_name: "test".to_string(),
+            started_at: "2026-04-07T12:00:00Z".to_string(),
+            finished_at: "2026-04-07T12:00:01Z".to_string(),
+            success: false,
+            error_message: Some("query failed".to_string()),
+            retry_count: 2,
+            is_final_attempt: true,
+        };
+        let line = serde_json::to_string(&entry).unwrap();
+        let parsed: SchedulerLogEntry = serde_json::from_str(&line).unwrap();
+        assert_eq!(parsed.retry_count, 2);
+        assert!(parsed.is_final_attempt);
+        assert_eq!(parsed.error_message, Some("query failed".to_string()));
+    }
+
+    #[test]
+    fn test_log_entry_backward_compat() {
+        let legacy = r#"{
+            "job_id":"job-legacy",
+            "script_name":"legacy",
+            "started_at":"2026-04-07T12:00:00Z",
+            "finished_at":"2026-04-07T12:00:01Z",
+            "success":false,
+            "error_message":"failed"
+        }"#;
+        let parsed: SchedulerLogEntry = serde_json::from_str(legacy).unwrap();
+        assert_eq!(parsed.job_id, "job-legacy");
+        assert_eq!(parsed.retry_count, 0);
+        assert!(!parsed.is_final_attempt);
     }
 
     #[test]
@@ -441,7 +543,10 @@ mod tests {
         let cron = "0 * * * *"; // 毎時0分
         let next1 = next_run_secs(cron, now).unwrap();
         let next2 = next_run_secs(cron, now).unwrap();
-        assert_eq!(next1, next2, "同じ cron 式は同じ next_secs を返す必要がある");
+        assert_eq!(
+            next1, next2,
+            "同じ cron 式は同じ next_secs を返す必要がある"
+        );
         assert!(next1 > now);
     }
 
@@ -449,10 +554,13 @@ mod tests {
     fn test_collect_jobs_different_cron() {
         // 異なる cron 式は異なる next_secs を返すことを確認
         let now = 1775520000u64; // 2026-04-07 00:00:00 UTC（分=0）
-        // now はちょうど 00:00:00 なので、"*/15 * * * *" の次回は 00:15:00
-        // "0 * * * *" の次回は 01:00:00
+                                 // now はちょうど 00:00:00 なので、"*/15 * * * *" の次回は 00:15:00
+                                 // "0 * * * *" の次回は 01:00:00
         let next_15min = next_run_secs("*/15 * * * *", now).unwrap();
         let next_hourly = next_run_secs("0 * * * *", now).unwrap();
-        assert!(next_15min < next_hourly, "15分ごとは1時間ごとより早く実行される");
+        assert!(
+            next_15min < next_hourly,
+            "15分ごとは1時間ごとより早く実行される"
+        );
     }
 }

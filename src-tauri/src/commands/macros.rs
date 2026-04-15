@@ -1,6 +1,6 @@
+use crate::db::worker::DbWorker;
 use std::path::{Path, PathBuf};
 use tauri::Manager;
-use crate::db::worker::DbWorker;
 
 fn macros_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     let home = app.path().home_dir().map_err(|e| e.to_string())?;

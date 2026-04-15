@@ -9,8 +9,8 @@ pub mod scheduled_jobs;
 pub mod scheduler_commands;
 pub mod scripts;
 
-use std::sync::atomic::Ordering;
 use crate::mcp::McpLock;
+use std::sync::atomic::Ordering;
 
 /// MCP ロックが有効な場合にエラーを返すヘルパー。
 /// Tauri コマンド内で `ensure_not_mcp_locked(&lock)?;` として使用する。

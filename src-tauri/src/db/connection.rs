@@ -51,9 +51,11 @@ fn duckdb_value_to_json(v: Value) -> serde_json::Value {
         Value::Date32(days) => serde_json::Value::String(days_to_date_str(days)),
         Value::Timestamp(unit, ts) => serde_json::Value::String(timestamp_to_str(&unit, ts)),
         Value::Time64(unit, t) => serde_json::Value::String(time64_to_str(&unit, t)),
-        Value::Interval { months, days, nanos } => {
-            serde_json::Value::String(interval_to_str(months, days, nanos))
-        }
+        Value::Interval {
+            months,
+            days,
+            nanos,
+        } => serde_json::Value::String(interval_to_str(months, days, nanos)),
         Value::Enum(s) => serde_json::Value::String(s),
         Value::List(items) | Value::Array(items) => {
             serde_json::Value::Array(items.into_iter().map(duckdb_value_to_json).collect())
@@ -105,7 +107,9 @@ fn days_to_date_str(days: i32) -> String {
     if d >= 0 {
         loop {
             let dy = if is_leap(year) { 366 } else { 365 };
-            if d < dy { break; }
+            if d < dy {
+                break;
+            }
             d -= dy;
             year += 1;
         }
@@ -114,16 +118,31 @@ fn days_to_date_str(days: i32) -> String {
             year -= 1;
             let dy = if is_leap(year) { 366 } else { 365 };
             d += dy;
-            if d >= 0 { break; }
+            if d >= 0 {
+                break;
+            }
         }
     }
 
     let month_days: [i64; 12] = [
-        31, if is_leap(year) { 29 } else { 28 }, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31,
+        31,
+        if is_leap(year) { 29 } else { 28 },
+        31,
+        30,
+        31,
+        30,
+        31,
+        31,
+        30,
+        31,
+        30,
+        31,
     ];
     let mut month = 1i64;
     for &md in &month_days {
-        if d < md { break; }
+        if d < md {
+            break;
+        }
         d -= md;
         month += 1;
     }
@@ -184,11 +203,19 @@ fn interval_to_str(months: i32, days: i32, nanos: i64) -> String {
             parts.push(format!("{} year{}", y, if y.abs() != 1 { "s" } else { "" }));
         }
         if mo != 0 {
-            parts.push(format!("{} month{}", mo, if mo.abs() != 1 { "s" } else { "" }));
+            parts.push(format!(
+                "{} month{}",
+                mo,
+                if mo.abs() != 1 { "s" } else { "" }
+            ));
         }
     }
     if days != 0 {
-        parts.push(format!("{} day{}", days, if days.abs() != 1 { "s" } else { "" }));
+        parts.push(format!(
+            "{} day{}",
+            days,
+            if days.abs() != 1 { "s" } else { "" }
+        ));
     }
     if nanos != 0 {
         let micros = nanos / 1_000;
@@ -199,5 +226,9 @@ fn interval_to_str(months: i32, days: i32, nanos: i64) -> String {
             parts.push(format!("{:02}:{:02}:{:02}", h, m, s));
         }
     }
-    if parts.is_empty() { "0 seconds".to_string() } else { parts.join(" ") }
+    if parts.is_empty() {
+        "0 seconds".to_string()
+    } else {
+        parts.join(" ")
+    }
 }

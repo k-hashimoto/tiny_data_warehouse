@@ -46,16 +46,16 @@ export interface JsonPreviewResult {
   suggested_table_name: string;
 }
 
-export type JobKind =
-  | { type: "saved_query"; name: string }
-  | { type: "csv_import"; path: string }
-  | { type: "workflow"; id: string };
-
 export interface ScheduledJob {
   id: string;
-  kind: JobKind;
-  cron: string;
+  name: string;
+  job_type: string;
+  target_id: string;
+  cron_expr: string;
+  timezone: string;
   enabled: boolean;
+  created_at: string;
+  last_run_at: string | null;
 }
 
 export interface Tab {
