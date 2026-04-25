@@ -13,11 +13,14 @@ interface SchedulerLogEntry {
   finished_at: string;
   success: boolean;
   error_message: string | null;
+  retry_count: number;
+  is_final_attempt: boolean;
 }
 
 export function SchedulerPanel() {
   const activeTabId = useAppStore((s) => s.activeTabId);
   const linkedScript = useAppStore((s) => s.getActiveTab().linkedScript);
+  const setScheduledJobs = useAppStore((s) => s.setScheduledJobs);
 
   const [job, setJob] = useState<ScheduledJobPayload | null>(null);
   const [logs, setLogs] = useState<SchedulerLogEntry[]>([]);
@@ -57,11 +60,16 @@ export function SchedulerPanel() {
   }, [activeTabId, linkedScript, loadJob, loadLogs]);
 
   async function handleSave(payload: ScheduledJobPayload) {
+    const isNew = job === null;
     try {
       // 既存ジョブがあれば同じIDで上書き（1スクリプト1ジョブ）
       const toSave = job ? { ...payload, id: job.id } : payload;
       await invoke("save_scheduled_job", { job: toSave });
       await invoke("reload_scheduler");
+      if (isNew) {
+        const all = await invoke<ScheduledJobPayload[]>("list_scheduled_jobs");
+        setScheduledJobs(all);
+      }
       if (linkedScript) {
         await loadJob(linkedScript);
         await loadLogs(linkedScript);
@@ -76,6 +84,8 @@ export function SchedulerPanel() {
     try {
       await invoke("delete_scheduled_job", { id: job.id });
       await invoke("reload_scheduler");
+      const all = await invoke<ScheduledJobPayload[]>("list_scheduled_jobs");
+      setScheduledJobs(all);
       setJob(null);
       setLogs([]);
     } catch (e) {
@@ -197,9 +207,19 @@ export function SchedulerPanel() {
                         {" → "}
                         {entry.finished_at.replace("T", " ").replace("Z", " UTC")}
                       </span>
+                      {entry.retry_count > 0 && (
+                        <span className="text-xs text-orange-500">
+                          [リトライ {entry.retry_count}/2]
+                        </span>
+                      )}
                       {entry.error_message && (
                         <span className="text-xs text-destructive break-all">
                           {entry.error_message}
+                        </span>
+                      )}
+                      {!entry.success && entry.is_final_attempt && entry.retry_count > 0 && (
+                        <span className="text-xs text-orange-500 font-semibold">
+                          すべてのリトライが失敗しました
                         </span>
                       )}
                     </div>

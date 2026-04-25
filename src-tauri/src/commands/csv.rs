@@ -1,25 +1,38 @@
-use tauri::State;
-use crate::db::worker::DbWorker;
+use crate::commands::ensure_not_mcp_locked;
 use crate::db::types::{CsvImportOptions, CsvPreviewResult, TableInfo};
+use crate::db::worker::DbWorker;
 use crate::error::AppError;
 use crate::mcp::McpLock;
 use crate::utils;
-use crate::commands::ensure_not_mcp_locked;
+use tauri::State;
 
 #[tauri::command]
-pub async fn reimport_csv(schema_name: String, table_name: String, db: State<'_, DbWorker>, lock: State<'_, McpLock>) -> Result<TableInfo, String> {
+pub async fn reimport_csv(
+    schema_name: String,
+    table_name: String,
+    db: State<'_, DbWorker>,
+    lock: State<'_, McpLock>,
+) -> Result<TableInfo, String> {
     ensure_not_mcp_locked(&lock)?;
     db.reimport_csv(schema_name, table_name).await
 }
 
 #[tauri::command]
-pub async fn preview_csv(opts: CsvImportOptions, db: State<'_, DbWorker>, lock: State<'_, McpLock>) -> Result<CsvPreviewResult, String> {
+pub async fn preview_csv(
+    opts: CsvImportOptions,
+    db: State<'_, DbWorker>,
+    lock: State<'_, McpLock>,
+) -> Result<CsvPreviewResult, String> {
     ensure_not_mcp_locked(&lock)?;
     db.preview_csv(opts).await
 }
 
 #[tauri::command]
-pub async fn import_csv(opts: CsvImportOptions, db: State<'_, DbWorker>, lock: State<'_, McpLock>) -> Result<TableInfo, String> {
+pub async fn import_csv(
+    opts: CsvImportOptions,
+    db: State<'_, DbWorker>,
+    lock: State<'_, McpLock>,
+) -> Result<TableInfo, String> {
     ensure_not_mcp_locked(&lock)?;
     db.import_csv(opts).await
 }
@@ -49,7 +62,10 @@ pub async fn export_query_csv(
         let resolved_dir = std::path::PathBuf::from(utils::expand_home_path(&export_dir));
         std::fs::create_dir_all(&resolved_dir)?;
         let out_path = resolved_dir.join(&filename);
-        let out_path_str = out_path.to_str().ok_or_else(|| AppError::Other("Invalid path".to_string()))?.replace('\'', "''");
+        let out_path_str = out_path
+            .to_str()
+            .ok_or_else(|| AppError::Other("Invalid path".to_string()))?
+            .replace('\'', "''");
         Ok(out_path_str)
     };
     let out_path_str = inner().map_err(|e| e.to_string())?;

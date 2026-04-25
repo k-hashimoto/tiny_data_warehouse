@@ -1,12 +1,15 @@
-use std::thread;
-use std::time::Instant;
-use duckdb::Connection;
 use crate::db::connection::row_value_to_json;
 use crate::db::sql_util;
-use crate::db::types::{QueryResult, TableInfo, SchemaResult, ColumnInfo, CsvImportOptions, CsvPreviewResult, JsonImportOptions, JsonPreviewResult, TableMeta, ColumnMeta};
+use crate::db::types::{
+    ColumnInfo, ColumnMeta, CsvImportOptions, CsvPreviewResult, JsonImportOptions,
+    JsonPreviewResult, QueryResult, SchemaResult, TableInfo, TableMeta,
+};
 use crate::error::AppError;
 use crate::file_io;
 use crate::scheduler::{JobType, ScheduledJob};
+use duckdb::Connection;
+use std::thread;
+use std::time::Instant;
 
 pub enum WorkerCmd {
     // === クエリ実行 ===
@@ -155,8 +158,7 @@ impl DbWorker {
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<WorkerCmd>();
 
         thread::spawn(move || {
-            let conn = Connection::open(&db_path)
-                .expect("Failed to open DuckDB connection");
+            let conn = Connection::open(&db_path).expect("Failed to open DuckDB connection");
             // Limit DuckDB internal threads to avoid macOS thread conflicts
             let _ = conn.execute("SET threads=2", []);
             // Disable automatic checkpoints to prevent SIGBUS on macOS ARM (memory-mapped page reclaim).
@@ -195,7 +197,7 @@ impl DbWorker {
                      enabled    BOOLEAN DEFAULT TRUE,
                      created_at TIMESTAMP DEFAULT now(),
                      last_run_at TIMESTAMP
-                 );"
+                 );",
             );
             // Migrate: add timezone column to scheduled_jobs if it does not exist yet.
             // Note: DEFAULT value in ALTER TABLE triggers a DuckDB WAL replay bug
@@ -212,7 +214,7 @@ impl DbWorker {
             if !col_exists {
                 let _ = conn.execute_batch(
                     "ALTER TABLE _tdw.scheduled_jobs ADD COLUMN timezone VARCHAR; \
-                     UPDATE _tdw.scheduled_jobs SET timezone = 'UTC' WHERE timezone IS NULL;"
+                     UPDATE _tdw.scheduled_jobs SET timezone = 'UTC' WHERE timezone IS NULL;",
                 );
             }
             // Flush WAL after schema initialization so the next startup does not need to
@@ -243,18 +245,50 @@ impl DbWorker {
                     WorkerCmd::ListSchemas { tx } => {
                         let _ = tx.send(exec_list_schemas(&conn).map_err(|e| e.to_string()));
                     }
-                    WorkerCmd::GetSchema { schema_name, table_name, tx } => {
-                        let _ = tx.send(exec_get_schema(&conn, &schema_name, &table_name).map_err(|e| e.to_string()));
+                    WorkerCmd::GetSchema {
+                        schema_name,
+                        table_name,
+                        tx,
+                    } => {
+                        let _ = tx.send(
+                            exec_get_schema(&conn, &schema_name, &table_name)
+                                .map_err(|e| e.to_string()),
+                        );
                     }
-                    WorkerCmd::GetDbtSchema { dbt_path, schema_name, table_name, tx } => {
-                        let _ = tx.send(exec_get_dbt_schema(&dbt_path, &schema_name, &table_name).map_err(|e| e.to_string()));
+                    WorkerCmd::GetDbtSchema {
+                        dbt_path,
+                        schema_name,
+                        table_name,
+                        tx,
+                    } => {
+                        let _ = tx.send(
+                            exec_get_dbt_schema(&dbt_path, &schema_name, &table_name)
+                                .map_err(|e| e.to_string()),
+                        );
                     }
-                    WorkerCmd::PreviewTable { table_name, limit, tx } => {
-                        let sql = format!("SELECT * FROM {} LIMIT {}", sql_util::ident(&table_name), limit);
+                    WorkerCmd::PreviewTable {
+                        table_name,
+                        limit,
+                        tx,
+                    } => {
+                        let sql = format!(
+                            "SELECT * FROM {} LIMIT {}",
+                            sql_util::ident(&table_name),
+                            limit
+                        );
                         let _ = tx.send(exec_query(&conn, &sql).map_err(|e| e.to_string()));
                     }
-                    WorkerCmd::PreviewDbtTable { dbt_path, schema_name, table_name, limit, tx } => {
-                        let _ = tx.send(exec_preview_dbt_table(&dbt_path, &schema_name, &table_name, limit).map_err(|e| e.to_string()));
+                    WorkerCmd::PreviewDbtTable {
+                        dbt_path,
+                        schema_name,
+                        table_name,
+                        limit,
+                        tx,
+                    } => {
+                        let _ = tx.send(
+                            exec_preview_dbt_table(&dbt_path, &schema_name, &table_name, limit)
+                                .map_err(|e| e.to_string()),
+                        );
                     }
                     WorkerCmd::AttachDbt { dbt_path, tx } => {
                         let result = exec_attach_dbt(&conn, &dbt_path);
@@ -264,11 +298,26 @@ impl DbWorker {
                         let result = exec_detach_dbt(&conn);
                         let _ = tx.send(result.map_err(|e| e.to_string()));
                     }
-                    WorkerCmd::DropDbtTable { dbt_path, schema_name, table_name, tx } => {
-                        let _ = tx.send(exec_drop_dbt_table(&dbt_path, &schema_name, &table_name).map_err(|e| e.to_string()));
+                    WorkerCmd::DropDbtTable {
+                        dbt_path,
+                        schema_name,
+                        table_name,
+                        tx,
+                    } => {
+                        let _ = tx.send(
+                            exec_drop_dbt_table(&dbt_path, &schema_name, &table_name)
+                                .map_err(|e| e.to_string()),
+                        );
                     }
-                    WorkerCmd::DropDbtSchema { dbt_path, schema_name, tx } => {
-                        let _ = tx.send(exec_drop_dbt_schema(&dbt_path, &schema_name).map_err(|e| e.to_string()));
+                    WorkerCmd::DropDbtSchema {
+                        dbt_path,
+                        schema_name,
+                        tx,
+                    } => {
+                        let _ = tx.send(
+                            exec_drop_dbt_schema(&dbt_path, &schema_name)
+                                .map_err(|e| e.to_string()),
+                        );
                     }
 
                     // === データインポート ===
@@ -278,8 +327,15 @@ impl DbWorker {
                     WorkerCmd::ImportCsv { opts, tx } => {
                         let _ = tx.send(exec_import_csv(&conn, &opts).map_err(|e| e.to_string()));
                     }
-                    WorkerCmd::ReimportCsv { schema_name, table_name, tx } => {
-                        let _ = tx.send(exec_reimport_csv(&conn, &schema_name, &table_name).map_err(|e| e.to_string()));
+                    WorkerCmd::ReimportCsv {
+                        schema_name,
+                        table_name,
+                        tx,
+                    } => {
+                        let _ = tx.send(
+                            exec_reimport_csv(&conn, &schema_name, &table_name)
+                                .map_err(|e| e.to_string()),
+                        );
                     }
                     WorkerCmd::PreviewJson { opts, tx } => {
                         let _ = tx.send(exec_preview_json(&conn, &opts).map_err(|e| e.to_string()));
@@ -289,20 +345,73 @@ impl DbWorker {
                     }
 
                     // === メタデータ管理 ===
-                    WorkerCmd::GetTableMeta { schema_name, table_name, tx } => {
-                        let _ = tx.send(exec_get_table_meta(&conn, &schema_name, &table_name).map_err(|e| e.to_string()));
+                    WorkerCmd::GetTableMeta {
+                        schema_name,
+                        table_name,
+                        tx,
+                    } => {
+                        let _ = tx.send(
+                            exec_get_table_meta(&conn, &schema_name, &table_name)
+                                .map_err(|e| e.to_string()),
+                        );
                     }
-                    WorkerCmd::GetDbtTableMeta { dbt_path, schema_name, table_name, tx } => {
-                        let _ = tx.send(exec_get_dbt_table_meta(&dbt_path, &schema_name, &table_name).map_err(|e| e.to_string()));
+                    WorkerCmd::GetDbtTableMeta {
+                        dbt_path,
+                        schema_name,
+                        table_name,
+                        tx,
+                    } => {
+                        let _ = tx.send(
+                            exec_get_dbt_table_meta(&dbt_path, &schema_name, &table_name)
+                                .map_err(|e| e.to_string()),
+                        );
                     }
-                    WorkerCmd::SetTableComment { schema_name, table_name, comment, tx } => {
-                        let _ = tx.send(exec_set_table_comment(&conn, &schema_name, &table_name, &comment).map_err(|e| e.to_string()));
+                    WorkerCmd::SetTableComment {
+                        schema_name,
+                        table_name,
+                        comment,
+                        tx,
+                    } => {
+                        let _ = tx.send(
+                            exec_set_table_comment(&conn, &schema_name, &table_name, &comment)
+                                .map_err(|e| e.to_string()),
+                        );
                     }
-                    WorkerCmd::SetColumnComment { schema_name, table_name, column_name, comment, tx } => {
-                        let _ = tx.send(exec_set_column_comment(&conn, &schema_name, &table_name, &column_name, &comment).map_err(|e| e.to_string()));
+                    WorkerCmd::SetColumnComment {
+                        schema_name,
+                        table_name,
+                        column_name,
+                        comment,
+                        tx,
+                    } => {
+                        let _ = tx.send(
+                            exec_set_column_comment(
+                                &conn,
+                                &schema_name,
+                                &table_name,
+                                &column_name,
+                                &comment,
+                            )
+                            .map_err(|e| e.to_string()),
+                        );
                     }
-                    WorkerCmd::TouchTableTimestamp { schema_name, table_name, source, is_new, tx } => {
-                        let _ = tx.send(exec_touch_table_timestamp(&conn, &schema_name, &table_name, &source, is_new).map_err(|e| e.to_string()));
+                    WorkerCmd::TouchTableTimestamp {
+                        schema_name,
+                        table_name,
+                        source,
+                        is_new,
+                        tx,
+                    } => {
+                        let _ = tx.send(
+                            exec_touch_table_timestamp(
+                                &conn,
+                                &schema_name,
+                                &table_name,
+                                &source,
+                                is_new,
+                            )
+                            .map_err(|e| e.to_string()),
+                        );
                     }
                     WorkerCmd::TouchDbtTimestamps { tables, tx } => {
                         let result = tables.iter().try_for_each(|(schema, table)| {
@@ -316,10 +425,12 @@ impl DbWorker {
                         let _ = tx.send(exec_list_scheduled_jobs(&conn).map_err(|e| e.to_string()));
                     }
                     WorkerCmd::SaveScheduledJob { job, tx } => {
-                        let _ = tx.send(exec_save_scheduled_job(&conn, &job).map_err(|e| e.to_string()));
+                        let _ = tx
+                            .send(exec_save_scheduled_job(&conn, &job).map_err(|e| e.to_string()));
                     }
                     WorkerCmd::DeleteScheduledJob { id, tx } => {
-                        let _ = tx.send(exec_delete_scheduled_job(&conn, &id).map_err(|e| e.to_string()));
+                        let _ = tx
+                            .send(exec_delete_scheduled_job(&conn, &id).map_err(|e| e.to_string()));
                     }
                 }
             }
@@ -330,157 +441,334 @@ impl DbWorker {
 
     pub async fn query(&self, sql: String) -> Result<QueryResult, String> {
         let (resp_tx, resp_rx) = tokio::sync::oneshot::channel();
-        self.tx.send(WorkerCmd::Query { sql, tx: resp_tx }).map_err(|e| e.to_string())?;
+        self.tx
+            .send(WorkerCmd::Query { sql, tx: resp_tx })
+            .map_err(|e| e.to_string())?;
         resp_rx.await.map_err(|e| e.to_string())?
     }
 
     pub async fn list_tables(&self) -> Result<Vec<TableInfo>, String> {
         let (resp_tx, resp_rx) = tokio::sync::oneshot::channel();
-        self.tx.send(WorkerCmd::ListTables { tx: resp_tx }).map_err(|e| e.to_string())?;
+        self.tx
+            .send(WorkerCmd::ListTables { tx: resp_tx })
+            .map_err(|e| e.to_string())?;
         resp_rx.await.map_err(|e| e.to_string())?
     }
 
     pub async fn list_dbt_tables(&self, dbt_path: String) -> Result<Vec<TableInfo>, String> {
         let (resp_tx, resp_rx) = tokio::sync::oneshot::channel();
-        self.tx.send(WorkerCmd::ListDbtTables { dbt_path, tx: resp_tx }).map_err(|e| e.to_string())?;
+        self.tx
+            .send(WorkerCmd::ListDbtTables {
+                dbt_path,
+                tx: resp_tx,
+            })
+            .map_err(|e| e.to_string())?;
         resp_rx.await.map_err(|e| e.to_string())?
     }
 
     pub async fn attach_dbt(&self, dbt_path: String) -> Result<(), String> {
         let (resp_tx, resp_rx) = tokio::sync::oneshot::channel();
-        self.tx.send(WorkerCmd::AttachDbt { dbt_path, tx: resp_tx }).map_err(|e| e.to_string())?;
+        self.tx
+            .send(WorkerCmd::AttachDbt {
+                dbt_path,
+                tx: resp_tx,
+            })
+            .map_err(|e| e.to_string())?;
         resp_rx.await.map_err(|e| e.to_string())?
     }
 
     pub async fn detach_dbt(&self) -> Result<(), String> {
         let (resp_tx, resp_rx) = tokio::sync::oneshot::channel();
-        self.tx.send(WorkerCmd::DetachDbt { tx: resp_tx }).map_err(|e| e.to_string())?;
+        self.tx
+            .send(WorkerCmd::DetachDbt { tx: resp_tx })
+            .map_err(|e| e.to_string())?;
         resp_rx.await.map_err(|e| e.to_string())?
     }
 
-    pub async fn get_dbt_schema(&self, dbt_path: String, schema_name: String, table_name: String) -> Result<SchemaResult, String> {
+    pub async fn get_dbt_schema(
+        &self,
+        dbt_path: String,
+        schema_name: String,
+        table_name: String,
+    ) -> Result<SchemaResult, String> {
         let (resp_tx, resp_rx) = tokio::sync::oneshot::channel();
-        self.tx.send(WorkerCmd::GetDbtSchema { dbt_path, schema_name, table_name, tx: resp_tx }).map_err(|e| e.to_string())?;
+        self.tx
+            .send(WorkerCmd::GetDbtSchema {
+                dbt_path,
+                schema_name,
+                table_name,
+                tx: resp_tx,
+            })
+            .map_err(|e| e.to_string())?;
         resp_rx.await.map_err(|e| e.to_string())?
     }
 
-    pub async fn drop_dbt_table(&self, dbt_path: String, schema_name: String, table_name: String) -> Result<(), String> {
+    pub async fn drop_dbt_table(
+        &self,
+        dbt_path: String,
+        schema_name: String,
+        table_name: String,
+    ) -> Result<(), String> {
         let (resp_tx, resp_rx) = tokio::sync::oneshot::channel();
-        self.tx.send(WorkerCmd::DropDbtTable { dbt_path, schema_name, table_name, tx: resp_tx }).map_err(|e| e.to_string())?;
+        self.tx
+            .send(WorkerCmd::DropDbtTable {
+                dbt_path,
+                schema_name,
+                table_name,
+                tx: resp_tx,
+            })
+            .map_err(|e| e.to_string())?;
         resp_rx.await.map_err(|e| e.to_string())?
     }
 
-    pub async fn drop_dbt_schema(&self, dbt_path: String, schema_name: String) -> Result<(), String> {
+    pub async fn drop_dbt_schema(
+        &self,
+        dbt_path: String,
+        schema_name: String,
+    ) -> Result<(), String> {
         let (resp_tx, resp_rx) = tokio::sync::oneshot::channel();
-        self.tx.send(WorkerCmd::DropDbtSchema { dbt_path, schema_name, tx: resp_tx }).map_err(|e| e.to_string())?;
+        self.tx
+            .send(WorkerCmd::DropDbtSchema {
+                dbt_path,
+                schema_name,
+                tx: resp_tx,
+            })
+            .map_err(|e| e.to_string())?;
         resp_rx.await.map_err(|e| e.to_string())?
     }
 
-    pub async fn preview_dbt_table(&self, dbt_path: String, schema_name: String, table_name: String, limit: i64) -> Result<QueryResult, String> {
+    pub async fn preview_dbt_table(
+        &self,
+        dbt_path: String,
+        schema_name: String,
+        table_name: String,
+        limit: i64,
+    ) -> Result<QueryResult, String> {
         let (resp_tx, resp_rx) = tokio::sync::oneshot::channel();
-        self.tx.send(WorkerCmd::PreviewDbtTable { dbt_path, schema_name, table_name, limit, tx: resp_tx }).map_err(|e| e.to_string())?;
+        self.tx
+            .send(WorkerCmd::PreviewDbtTable {
+                dbt_path,
+                schema_name,
+                table_name,
+                limit,
+                tx: resp_tx,
+            })
+            .map_err(|e| e.to_string())?;
         resp_rx.await.map_err(|e| e.to_string())?
     }
 
-    pub async fn get_schema(&self, schema_name: String, table_name: String) -> Result<SchemaResult, String> {
+    pub async fn get_schema(
+        &self,
+        schema_name: String,
+        table_name: String,
+    ) -> Result<SchemaResult, String> {
         let (resp_tx, resp_rx) = tokio::sync::oneshot::channel();
-        self.tx.send(WorkerCmd::GetSchema { schema_name, table_name, tx: resp_tx }).map_err(|e| e.to_string())?;
+        self.tx
+            .send(WorkerCmd::GetSchema {
+                schema_name,
+                table_name,
+                tx: resp_tx,
+            })
+            .map_err(|e| e.to_string())?;
         resp_rx.await.map_err(|e| e.to_string())?
     }
 
     pub async fn list_schemas(&self) -> Result<Vec<String>, String> {
         let (resp_tx, resp_rx) = tokio::sync::oneshot::channel();
-        self.tx.send(WorkerCmd::ListSchemas { tx: resp_tx }).map_err(|e| e.to_string())?;
+        self.tx
+            .send(WorkerCmd::ListSchemas { tx: resp_tx })
+            .map_err(|e| e.to_string())?;
         resp_rx.await.map_err(|e| e.to_string())?
     }
 
-    pub async fn preview_table(&self, table_name: String, limit: i64) -> Result<QueryResult, String> {
+    pub async fn preview_table(
+        &self,
+        table_name: String,
+        limit: i64,
+    ) -> Result<QueryResult, String> {
         let (resp_tx, resp_rx) = tokio::sync::oneshot::channel();
-        self.tx.send(WorkerCmd::PreviewTable { table_name, limit, tx: resp_tx }).map_err(|e| e.to_string())?;
+        self.tx
+            .send(WorkerCmd::PreviewTable {
+                table_name,
+                limit,
+                tx: resp_tx,
+            })
+            .map_err(|e| e.to_string())?;
         resp_rx.await.map_err(|e| e.to_string())?
     }
 
     pub async fn preview_csv(&self, opts: CsvImportOptions) -> Result<CsvPreviewResult, String> {
         let (resp_tx, resp_rx) = tokio::sync::oneshot::channel();
-        self.tx.send(WorkerCmd::PreviewCsv { opts, tx: resp_tx }).map_err(|e| e.to_string())?;
+        self.tx
+            .send(WorkerCmd::PreviewCsv { opts, tx: resp_tx })
+            .map_err(|e| e.to_string())?;
         resp_rx.await.map_err(|e| e.to_string())?
     }
 
     pub async fn import_csv(&self, opts: CsvImportOptions) -> Result<TableInfo, String> {
         let (resp_tx, resp_rx) = tokio::sync::oneshot::channel();
-        self.tx.send(WorkerCmd::ImportCsv { opts, tx: resp_tx }).map_err(|e| e.to_string())?;
+        self.tx
+            .send(WorkerCmd::ImportCsv { opts, tx: resp_tx })
+            .map_err(|e| e.to_string())?;
         resp_rx.await.map_err(|e| e.to_string())?
     }
 
-    pub async fn get_table_meta(&self, schema_name: String, table_name: String) -> Result<TableMeta, String> {
+    pub async fn get_table_meta(
+        &self,
+        schema_name: String,
+        table_name: String,
+    ) -> Result<TableMeta, String> {
         let (resp_tx, resp_rx) = tokio::sync::oneshot::channel();
-        self.tx.send(WorkerCmd::GetTableMeta { schema_name, table_name, tx: resp_tx }).map_err(|e| e.to_string())?;
+        self.tx
+            .send(WorkerCmd::GetTableMeta {
+                schema_name,
+                table_name,
+                tx: resp_tx,
+            })
+            .map_err(|e| e.to_string())?;
         resp_rx.await.map_err(|e| e.to_string())?
     }
 
-    pub async fn get_dbt_table_meta(&self, dbt_path: String, schema_name: String, table_name: String) -> Result<TableMeta, String> {
+    pub async fn get_dbt_table_meta(
+        &self,
+        dbt_path: String,
+        schema_name: String,
+        table_name: String,
+    ) -> Result<TableMeta, String> {
         let (resp_tx, resp_rx) = tokio::sync::oneshot::channel();
-        self.tx.send(WorkerCmd::GetDbtTableMeta { dbt_path, schema_name, table_name, tx: resp_tx }).map_err(|e| e.to_string())?;
+        self.tx
+            .send(WorkerCmd::GetDbtTableMeta {
+                dbt_path,
+                schema_name,
+                table_name,
+                tx: resp_tx,
+            })
+            .map_err(|e| e.to_string())?;
         resp_rx.await.map_err(|e| e.to_string())?
     }
 
-    pub async fn set_table_comment(&self, schema_name: String, table_name: String, comment: String) -> Result<(), String> {
+    pub async fn set_table_comment(
+        &self,
+        schema_name: String,
+        table_name: String,
+        comment: String,
+    ) -> Result<(), String> {
         let (resp_tx, resp_rx) = tokio::sync::oneshot::channel();
-        self.tx.send(WorkerCmd::SetTableComment { schema_name, table_name, comment, tx: resp_tx }).map_err(|e| e.to_string())?;
+        self.tx
+            .send(WorkerCmd::SetTableComment {
+                schema_name,
+                table_name,
+                comment,
+                tx: resp_tx,
+            })
+            .map_err(|e| e.to_string())?;
         resp_rx.await.map_err(|e| e.to_string())?
     }
 
-    pub async fn set_column_comment(&self, schema_name: String, table_name: String, column_name: String, comment: String) -> Result<(), String> {
+    pub async fn set_column_comment(
+        &self,
+        schema_name: String,
+        table_name: String,
+        column_name: String,
+        comment: String,
+    ) -> Result<(), String> {
         let (resp_tx, resp_rx) = tokio::sync::oneshot::channel();
-        self.tx.send(WorkerCmd::SetColumnComment { schema_name, table_name, column_name, comment, tx: resp_tx }).map_err(|e| e.to_string())?;
+        self.tx
+            .send(WorkerCmd::SetColumnComment {
+                schema_name,
+                table_name,
+                column_name,
+                comment,
+                tx: resp_tx,
+            })
+            .map_err(|e| e.to_string())?;
         resp_rx.await.map_err(|e| e.to_string())?
     }
 
-    pub async fn reimport_csv(&self, schema_name: String, table_name: String) -> Result<TableInfo, String> {
+    pub async fn reimport_csv(
+        &self,
+        schema_name: String,
+        table_name: String,
+    ) -> Result<TableInfo, String> {
         let (resp_tx, resp_rx) = tokio::sync::oneshot::channel();
-        self.tx.send(WorkerCmd::ReimportCsv { schema_name, table_name, tx: resp_tx }).map_err(|e| e.to_string())?;
+        self.tx
+            .send(WorkerCmd::ReimportCsv {
+                schema_name,
+                table_name,
+                tx: resp_tx,
+            })
+            .map_err(|e| e.to_string())?;
         resp_rx.await.map_err(|e| e.to_string())?
     }
 
-    pub async fn touch_table_timestamp(&self, schema_name: String, table_name: String, source: String, is_new: bool) -> Result<(), String> {
+    pub async fn touch_table_timestamp(
+        &self,
+        schema_name: String,
+        table_name: String,
+        source: String,
+        is_new: bool,
+    ) -> Result<(), String> {
         let (resp_tx, resp_rx) = tokio::sync::oneshot::channel();
-        self.tx.send(WorkerCmd::TouchTableTimestamp { schema_name, table_name, source, is_new, tx: resp_tx }).map_err(|e| e.to_string())?;
+        self.tx
+            .send(WorkerCmd::TouchTableTimestamp {
+                schema_name,
+                table_name,
+                source,
+                is_new,
+                tx: resp_tx,
+            })
+            .map_err(|e| e.to_string())?;
         resp_rx.await.map_err(|e| e.to_string())?
     }
 
     pub async fn touch_dbt_timestamps(&self, tables: Vec<(String, String)>) -> Result<(), String> {
         let (resp_tx, resp_rx) = tokio::sync::oneshot::channel();
-        self.tx.send(WorkerCmd::TouchDbtTimestamps { tables, tx: resp_tx }).map_err(|e| e.to_string())?;
+        self.tx
+            .send(WorkerCmd::TouchDbtTimestamps {
+                tables,
+                tx: resp_tx,
+            })
+            .map_err(|e| e.to_string())?;
         resp_rx.await.map_err(|e| e.to_string())?
     }
 
     pub async fn preview_json(&self, opts: JsonImportOptions) -> Result<JsonPreviewResult, String> {
         let (resp_tx, resp_rx) = tokio::sync::oneshot::channel();
-        self.tx.send(WorkerCmd::PreviewJson { opts, tx: resp_tx }).map_err(|e| e.to_string())?;
+        self.tx
+            .send(WorkerCmd::PreviewJson { opts, tx: resp_tx })
+            .map_err(|e| e.to_string())?;
         resp_rx.await.map_err(|e| e.to_string())?
     }
 
     pub async fn import_json(&self, opts: JsonImportOptions) -> Result<TableInfo, String> {
         let (resp_tx, resp_rx) = tokio::sync::oneshot::channel();
-        self.tx.send(WorkerCmd::ImportJson { opts, tx: resp_tx }).map_err(|e| e.to_string())?;
+        self.tx
+            .send(WorkerCmd::ImportJson { opts, tx: resp_tx })
+            .map_err(|e| e.to_string())?;
         resp_rx.await.map_err(|e| e.to_string())?
     }
 
     pub async fn list_scheduled_jobs(&self) -> Result<Vec<ScheduledJob>, String> {
         let (resp_tx, resp_rx) = tokio::sync::oneshot::channel();
-        self.tx.send(WorkerCmd::ListScheduledJobs { tx: resp_tx }).map_err(|e| e.to_string())?;
+        self.tx
+            .send(WorkerCmd::ListScheduledJobs { tx: resp_tx })
+            .map_err(|e| e.to_string())?;
         resp_rx.await.map_err(|e| e.to_string())?
     }
 
     pub async fn save_scheduled_job(&self, job: ScheduledJob) -> Result<(), String> {
         let (resp_tx, resp_rx) = tokio::sync::oneshot::channel();
-        self.tx.send(WorkerCmd::SaveScheduledJob { job, tx: resp_tx }).map_err(|e| e.to_string())?;
+        self.tx
+            .send(WorkerCmd::SaveScheduledJob { job, tx: resp_tx })
+            .map_err(|e| e.to_string())?;
         resp_rx.await.map_err(|e| e.to_string())?
     }
 
     pub async fn delete_scheduled_job(&self, id: String) -> Result<(), String> {
         let (resp_tx, resp_rx) = tokio::sync::oneshot::channel();
-        self.tx.send(WorkerCmd::DeleteScheduledJob { id, tx: resp_tx }).map_err(|e| e.to_string())?;
+        self.tx
+            .send(WorkerCmd::DeleteScheduledJob { id, tx: resp_tx })
+            .map_err(|e| e.to_string())?;
         resp_rx.await.map_err(|e| e.to_string())?
     }
 }
@@ -504,28 +792,45 @@ fn exec_query(conn: &Connection, sql: &str) -> Result<QueryResult, AppError> {
 
     let mut result_rows: Vec<Vec<serde_json::Value>> = Vec::new();
     while let Some(row) = rows.next()? {
-        let row_vals: Vec<serde_json::Value> =
-            (0..column_count).map(|i| row_value_to_json(row, i)).collect();
+        let row_vals: Vec<serde_json::Value> = (0..column_count)
+            .map(|i| row_value_to_json(row, i))
+            .collect();
         result_rows.push(row_vals);
         if result_rows.len() >= RESULT_ROW_LIMIT {
             // Drain remaining rows to check if there are more
             let truncated = rows.next()?.is_some();
             let row_count = result_rows.len();
             let elapsed_ms = start.elapsed().as_millis();
-            return Ok(QueryResult { columns, rows: result_rows, row_count, elapsed_ms, truncated });
+            return Ok(QueryResult {
+                columns,
+                rows: result_rows,
+                row_count,
+                elapsed_ms,
+                truncated,
+            });
         }
     }
 
     let row_count = result_rows.len();
     let elapsed_ms = start.elapsed().as_millis();
-    Ok(QueryResult { columns, rows: result_rows, row_count, elapsed_ms, truncated: false })
+    Ok(QueryResult {
+        columns,
+        rows: result_rows,
+        row_count,
+        elapsed_ms,
+        truncated: false,
+    })
 }
 
 /// Shared inner loop for listing tables from a connection.
 /// `list_sql` must SELECT schema_name, table_name.
 /// `exclude_dbt_db`: when true, adds `AND database_name != 'dbt'` to the column count query
 ///   (needed for the main connection that may have the dbt DB attached).
-fn list_tables_from(conn: &Connection, list_sql: &str, exclude_dbt_db: bool) -> Result<Vec<TableInfo>, AppError> {
+fn list_tables_from(
+    conn: &Connection,
+    list_sql: &str,
+    exclude_dbt_db: bool,
+) -> Result<Vec<TableInfo>, AppError> {
     let mut stmt = conn.prepare(list_sql)?;
     let mut rows = stmt.query([])?;
 
@@ -536,12 +841,19 @@ fn list_tables_from(conn: &Connection, list_sql: &str, exclude_dbt_db: bool) -> 
         let table_type: String = row.get(2).unwrap_or_else(|_| "table".to_string());
         let row_count: i64 = conn
             .query_row(
-                &format!("SELECT COUNT(*) FROM {}", sql_util::qualified(&schema_name, &name)),
+                &format!(
+                    "SELECT COUNT(*) FROM {}",
+                    sql_util::qualified(&schema_name, &name)
+                ),
                 [],
                 |r| r.get(0),
             )
             .unwrap_or(0);
-        let db_filter = if exclude_dbt_db { " AND database_name != 'dbt'" } else { "" };
+        let db_filter = if exclude_dbt_db {
+            " AND database_name != 'dbt'"
+        } else {
+            ""
+        };
         let column_count: i64 = conn
             .query_row(
                 &format!(
@@ -554,7 +866,14 @@ fn list_tables_from(conn: &Connection, list_sql: &str, exclude_dbt_db: bool) -> 
                 |r| r.get(0),
             )
             .unwrap_or(0);
-        tables.push(TableInfo { name, schema_name, row_count, column_count, csv_source_path: None, table_type });
+        tables.push(TableInfo {
+            name,
+            schema_name,
+            row_count,
+            column_count,
+            csv_source_path: None,
+            table_type,
+        });
     }
     Ok(tables)
 }
@@ -585,8 +904,7 @@ fn exec_list_tables(conn: &Connection) -> Result<Vec<TableInfo>, AppError> {
 fn exec_list_dbt_tables(dbt_path: &str) -> Result<Vec<TableInfo>, AppError> {
     // Open a fresh read-only connection — released immediately when this function returns,
     // so dbt can write to the file at any other time without conflicts.
-    let config = duckdb::Config::default()
-        .access_mode(duckdb::AccessMode::ReadOnly)?;
+    let config = duckdb::Config::default().access_mode(duckdb::AccessMode::ReadOnly)?;
     let conn = match Connection::open_with_flags(dbt_path, config) {
         Ok(c) => c,
         Err(_) => return Ok(vec![]),
@@ -596,7 +914,11 @@ fn exec_list_dbt_tables(dbt_path: &str) -> Result<Vec<TableInfo>, AppError> {
 }
 
 /// Shared schema lookup used by both the main and dbt connections.
-fn get_schema_from(conn: &Connection, schema_name: &str, table_name: &str) -> Result<SchemaResult, AppError> {
+fn get_schema_from(
+    conn: &Connection,
+    schema_name: &str,
+    table_name: &str,
+) -> Result<SchemaResult, AppError> {
     let sql = format!(
         "SELECT column_name, data_type, is_nullable FROM duckdb_columns() WHERE schema_name = {} AND table_name = {} ORDER BY column_index",
         sql_util::literal(schema_name),
@@ -609,18 +931,33 @@ fn get_schema_from(conn: &Connection, schema_name: &str, table_name: &str) -> Re
         let name: String = row.get(0)?;
         let column_type: String = row.get(1)?;
         // is_nullable can be BOOLEAN or VARCHAR depending on DuckDB version
-        let nullable = row.get::<_, bool>(2)
+        let nullable = row
+            .get::<_, bool>(2)
             .unwrap_or_else(|_| row.get::<_, String>(2).map(|s| s == "YES").unwrap_or(false));
-        columns.push(ColumnInfo { name, column_type, nullable });
+        columns.push(ColumnInfo {
+            name,
+            column_type,
+            nullable,
+        });
     }
-    Ok(SchemaResult { table_name: table_name.to_string(), columns })
+    Ok(SchemaResult {
+        table_name: table_name.to_string(),
+        columns,
+    })
 }
 
-fn exec_get_schema(conn: &Connection, schema_name: &str, table_name: &str) -> Result<SchemaResult, AppError> {
+fn exec_get_schema(
+    conn: &Connection,
+    schema_name: &str,
+    table_name: &str,
+) -> Result<SchemaResult, AppError> {
     get_schema_from(conn, schema_name, table_name)
 }
 
-fn exec_preview_csv(conn: &Connection, opts: &CsvImportOptions) -> Result<CsvPreviewResult, AppError> {
+fn exec_preview_csv(
+    conn: &Connection,
+    opts: &CsvImportOptions,
+) -> Result<CsvPreviewResult, AppError> {
     let csv_expr = file_io::csv::build_read_expr(opts);
     let sql = format!("SELECT * FROM {} LIMIT 10", csv_expr);
     let preview = exec_query(conn, &sql)?;
@@ -632,7 +969,10 @@ fn exec_preview_csv(conn: &Connection, opts: &CsvImportOptions) -> Result<CsvPre
         .unwrap_or("imported_table")
         .to_string();
 
-    Ok(CsvPreviewResult { preview, suggested_table_name })
+    Ok(CsvPreviewResult {
+        preview,
+        suggested_table_name,
+    })
 }
 
 /// CSV/JSON インポートの共通パラメータ
@@ -654,9 +994,18 @@ fn exec_import_common(conn: &Connection, params: ImportParams) -> Result<TableIn
     let qualified = sql_util::qualified(params.schema_name, params.table_name);
 
     let sql = match params.if_exists {
-        "append" => format!("INSERT INTO {} SELECT * FROM {}", qualified, params.read_sql),
-        "replace" => format!("CREATE OR REPLACE TABLE {} AS SELECT * FROM {}", qualified, params.read_sql),
-        _ => format!("CREATE TABLE {} AS SELECT * FROM {}", qualified, params.read_sql),
+        "append" => format!(
+            "INSERT INTO {} SELECT * FROM {}",
+            qualified, params.read_sql
+        ),
+        "replace" => format!(
+            "CREATE OR REPLACE TABLE {} AS SELECT * FROM {}",
+            qualified, params.read_sql
+        ),
+        _ => format!(
+            "CREATE TABLE {} AS SELECT * FROM {}",
+            qualified, params.read_sql
+        ),
     };
 
     conn.execute(&sql, [])?;
@@ -664,11 +1013,19 @@ fn exec_import_common(conn: &Connection, params: ImportParams) -> Result<TableIn
     // タイムスタンプ記録（append 以外）
     if params.if_exists != "append" {
         let is_new = params.if_exists != "replace";
-        let _ = exec_touch_table_timestamp(conn, params.schema_name, params.table_name, "adhoc", is_new);
+        let _ = exec_touch_table_timestamp(
+            conn,
+            params.schema_name,
+            params.table_name,
+            "adhoc",
+            is_new,
+        );
     }
 
     let row_count: i64 = conn
-        .query_row(&format!("SELECT COUNT(*) FROM {}", qualified), [], |r| r.get(0))
+        .query_row(&format!("SELECT COUNT(*) FROM {}", qualified), [], |r| {
+            r.get(0)
+        })
         .unwrap_or(0);
     let column_count: i64 = conn
         .query_row(
@@ -715,20 +1072,31 @@ fn exec_import_csv(conn: &Connection, opts: &CsvImportOptions) -> Result<TableIn
         let _ = conn.execute(&upsert, []);
     }
 
-    exec_import_common(conn, ImportParams {
-        schema_name: &opts.schema_name,
-        table_name: &opts.table_name,
-        read_sql: &csv_expr,
-        if_exists: &opts.if_exists,
-        csv_source_path: Some(opts.file_path.clone()),
-    })
+    exec_import_common(
+        conn,
+        ImportParams {
+            schema_name: &opts.schema_name,
+            table_name: &opts.table_name,
+            read_sql: &csv_expr,
+            if_exists: &opts.if_exists,
+            csv_source_path: Some(opts.file_path.clone()),
+        },
+    )
 }
 
-fn exec_preview_dbt_table(dbt_path: &str, schema_name: &str, table_name: &str, limit: i64) -> Result<QueryResult, AppError> {
-    let config = duckdb::Config::default()
-        .access_mode(duckdb::AccessMode::ReadOnly)?;
+fn exec_preview_dbt_table(
+    dbt_path: &str,
+    schema_name: &str,
+    table_name: &str,
+    limit: i64,
+) -> Result<QueryResult, AppError> {
+    let config = duckdb::Config::default().access_mode(duckdb::AccessMode::ReadOnly)?;
     let conn = Connection::open_with_flags(dbt_path, config)?;
-    let sql = format!("SELECT * FROM {} LIMIT {}", sql_util::qualified(schema_name, table_name), limit);
+    let sql = format!(
+        "SELECT * FROM {} LIMIT {}",
+        sql_util::qualified(schema_name, table_name),
+        limit
+    );
     exec_query(&conn, &sql)
 }
 
@@ -757,28 +1125,47 @@ fn exec_detach_dbt(conn: &Connection) -> Result<(), AppError> {
     Ok(())
 }
 
-fn exec_get_dbt_schema(dbt_path: &str, schema_name: &str, table_name: &str) -> Result<SchemaResult, AppError> {
-    let config = duckdb::Config::default()
-        .access_mode(duckdb::AccessMode::ReadOnly)?;
+fn exec_get_dbt_schema(
+    dbt_path: &str,
+    schema_name: &str,
+    table_name: &str,
+) -> Result<SchemaResult, AppError> {
+    let config = duckdb::Config::default().access_mode(duckdb::AccessMode::ReadOnly)?;
     let conn = Connection::open_with_flags(dbt_path, config)?;
     get_schema_from(&conn, schema_name, table_name)
 }
 
-fn exec_drop_dbt_table(dbt_path: &str, schema_name: &str, table_name: &str) -> Result<(), AppError> {
+fn exec_drop_dbt_table(
+    dbt_path: &str,
+    schema_name: &str,
+    table_name: &str,
+) -> Result<(), AppError> {
     let conn = Connection::open(dbt_path)?;
-    let sql = format!("DROP TABLE IF EXISTS {}", sql_util::qualified(schema_name, table_name));
+    let sql = format!(
+        "DROP TABLE IF EXISTS {}",
+        sql_util::qualified(schema_name, table_name)
+    );
     conn.execute(&sql, [])?;
     Ok(())
 }
 
 fn exec_drop_dbt_schema(dbt_path: &str, schema_name: &str) -> Result<(), AppError> {
     let conn = Connection::open(dbt_path)?;
-    let sql = format!("DROP SCHEMA IF EXISTS {} CASCADE", sql_util::ident(schema_name));
+    let sql = format!(
+        "DROP SCHEMA IF EXISTS {} CASCADE",
+        sql_util::ident(schema_name)
+    );
     conn.execute(&sql, [])?;
     Ok(())
 }
 
-fn exec_touch_table_timestamp(conn: &Connection, schema_name: &str, table_name: &str, source: &str, is_new: bool) -> Result<(), AppError> {
+fn exec_touch_table_timestamp(
+    conn: &Connection,
+    schema_name: &str,
+    table_name: &str,
+    source: &str,
+    is_new: bool,
+) -> Result<(), AppError> {
     let now_sql = "strftime(now()::TIMESTAMP, '%Y-%m-%dT%H:%M:%SZ')";
     let _ = is_new; // both branches produce identical SQL; field reserved for future use
     let sql = format!(
@@ -802,16 +1189,18 @@ fn fetch_table_meta(
         .map(|db| format!(" AND database_name != {}", sql_util::literal(db)))
         .unwrap_or_default();
 
-    let comment: Option<String> = conn.query_row(
-        &format!(
-            "SELECT comment FROM duckdb_tables() WHERE schema_name = {} AND table_name = {}{}",
-            sql_util::literal(schema_name),
-            sql_util::literal(table_name),
-            db_filter
-        ),
-        [],
-        |r| r.get::<_, String>(0),
-    ).ok();
+    let comment: Option<String> = conn
+        .query_row(
+            &format!(
+                "SELECT comment FROM duckdb_tables() WHERE schema_name = {} AND table_name = {}{}",
+                sql_util::literal(schema_name),
+                sql_util::literal(table_name),
+                db_filter
+            ),
+            [],
+            |r| r.get::<_, String>(0),
+        )
+        .ok();
 
     let sql = format!(
         "SELECT column_name, data_type, comment FROM duckdb_columns() WHERE schema_name = {} AND table_name = {}{} ORDER BY column_index",
@@ -826,7 +1215,11 @@ fn fetch_table_meta(
         let name: String = row.get(0)?;
         let data_type: String = row.get(1)?;
         let col_comment: Option<String> = row.get::<_, String>(2).ok();
-        columns.push(ColumnMeta { name, data_type, comment: col_comment });
+        columns.push(ColumnMeta {
+            name,
+            data_type,
+            comment: col_comment,
+        });
     }
 
     let ts_sql = format!(
@@ -834,55 +1227,100 @@ fn fetch_table_meta(
         sql_util::literal(schema_name),
         sql_util::literal(table_name)
     );
-    let (created_at, updated_at) = conn.query_row(&ts_sql, [], |r| {
-        Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
-    }).map(|(c, u)| (Some(c), Some(u))).unwrap_or((None, None));
+    let (created_at, updated_at) = conn
+        .query_row(&ts_sql, [], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+        })
+        .map(|(c, u)| (Some(c), Some(u)))
+        .unwrap_or((None, None));
 
-    Ok(TableMeta { schema_name: schema_name.to_string(), table_name: table_name.to_string(), comment, columns, created_at, updated_at })
+    Ok(TableMeta {
+        schema_name: schema_name.to_string(),
+        table_name: table_name.to_string(),
+        comment,
+        columns,
+        created_at,
+        updated_at,
+    })
 }
 
-fn exec_get_table_meta(conn: &Connection, schema_name: &str, table_name: &str) -> Result<TableMeta, AppError> {
+fn exec_get_table_meta(
+    conn: &Connection,
+    schema_name: &str,
+    table_name: &str,
+) -> Result<TableMeta, AppError> {
     fetch_table_meta(conn, schema_name, table_name, Some("dbt"))
 }
 
-fn exec_get_dbt_table_meta(dbt_path: &str, schema_name: &str, table_name: &str) -> Result<TableMeta, AppError> {
-    let config = duckdb::Config::default()
-        .access_mode(duckdb::AccessMode::ReadOnly)?;
+fn exec_get_dbt_table_meta(
+    dbt_path: &str,
+    schema_name: &str,
+    table_name: &str,
+) -> Result<TableMeta, AppError> {
+    let config = duckdb::Config::default().access_mode(duckdb::AccessMode::ReadOnly)?;
     let conn = Connection::open_with_flags(dbt_path, config)?;
     fetch_table_meta(&conn, schema_name, table_name, None)
 }
 
-fn exec_set_table_comment(conn: &Connection, schema_name: &str, table_name: &str, comment: &str) -> Result<(), AppError> {
+fn exec_set_table_comment(
+    conn: &Connection,
+    schema_name: &str,
+    table_name: &str,
+    comment: &str,
+) -> Result<(), AppError> {
     let qualified = sql_util::qualified(schema_name, table_name);
     let sql = if comment.is_empty() {
         format!("COMMENT ON TABLE {} IS NULL", qualified)
     } else {
-        format!("COMMENT ON TABLE {} IS {}", qualified, sql_util::literal(comment))
+        format!(
+            "COMMENT ON TABLE {} IS {}",
+            qualified,
+            sql_util::literal(comment)
+        )
     };
     conn.execute(&sql, [])?;
     Ok(())
 }
 
-fn exec_set_column_comment(conn: &Connection, schema_name: &str, table_name: &str, column_name: &str, comment: &str) -> Result<(), AppError> {
+fn exec_set_column_comment(
+    conn: &Connection,
+    schema_name: &str,
+    table_name: &str,
+    column_name: &str,
+    comment: &str,
+) -> Result<(), AppError> {
     let table_ref = sql_util::qualified(schema_name, table_name);
     let col_ref = sql_util::ident(column_name);
     let sql = if comment.is_empty() {
         format!("COMMENT ON COLUMN {}.{} IS NULL", table_ref, col_ref)
     } else {
-        format!("COMMENT ON COLUMN {}.{} IS {}", table_ref, col_ref, sql_util::literal(comment))
+        format!(
+            "COMMENT ON COLUMN {}.{} IS {}",
+            table_ref,
+            col_ref,
+            sql_util::literal(comment)
+        )
     };
     conn.execute(&sql, [])?;
     Ok(())
 }
 
-fn exec_reimport_csv(conn: &Connection, schema_name: &str, table_name: &str) -> Result<TableInfo, AppError> {
+fn exec_reimport_csv(
+    conn: &Connection,
+    schema_name: &str,
+    table_name: &str,
+) -> Result<TableInfo, AppError> {
     let result: Result<(String, String, String, bool), _> = conn.query_row(
         "SELECT file_path, delimiter, encoding, has_header FROM _tdw.csv_sources WHERE schema_name = ? AND table_name = ?",
         [schema_name, table_name],
         |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
     );
-    let (file_path, delimiter, encoding, has_header) = result
-        .map_err(|_| AppError::Other(format!("CSV source not found for {}.{}", schema_name, table_name)))?;
+    let (file_path, delimiter, encoding, has_header) = result.map_err(|_| {
+        AppError::Other(format!(
+            "CSV source not found for {}.{}",
+            schema_name, table_name
+        ))
+    })?;
 
     let opts = CsvImportOptions {
         file_path,
@@ -896,7 +1334,10 @@ fn exec_reimport_csv(conn: &Connection, schema_name: &str, table_name: &str) -> 
     exec_import_csv(conn, &opts)
 }
 
-fn exec_preview_json(conn: &Connection, opts: &JsonImportOptions) -> Result<JsonPreviewResult, AppError> {
+fn exec_preview_json(
+    conn: &Connection,
+    opts: &JsonImportOptions,
+) -> Result<JsonPreviewResult, AppError> {
     let json_expr = file_io::json::build_read_expr(opts);
     let sql = format!("SELECT * FROM {} LIMIT 10", json_expr);
     let preview = exec_query(conn, &sql)?;
@@ -905,19 +1346,25 @@ fn exec_preview_json(conn: &Connection, opts: &JsonImportOptions) -> Result<Json
         .and_then(|s| s.to_str())
         .unwrap_or("imported_table")
         .to_string();
-    Ok(JsonPreviewResult { preview, suggested_table_name })
+    Ok(JsonPreviewResult {
+        preview,
+        suggested_table_name,
+    })
 }
 
 fn exec_import_json(conn: &Connection, opts: &JsonImportOptions) -> Result<TableInfo, AppError> {
     let json_expr = file_io::json::build_read_expr(opts);
 
-    exec_import_common(conn, ImportParams {
-        schema_name: &opts.schema_name,
-        table_name: &opts.table_name,
-        read_sql: &json_expr,
-        if_exists: &opts.if_exists,
-        csv_source_path: None,
-    })
+    exec_import_common(
+        conn,
+        ImportParams {
+            schema_name: &opts.schema_name,
+            table_name: &opts.table_name,
+            read_sql: &json_expr,
+            if_exists: &opts.if_exists,
+            csv_source_path: None,
+        },
+    )
 }
 
 fn exec_list_scheduled_jobs(conn: &Connection) -> Result<Vec<ScheduledJob>, AppError> {
@@ -936,10 +1383,21 @@ fn exec_list_scheduled_jobs(conn: &Connection) -> Result<Vec<ScheduledJob>, AppE
         let enabled: bool = row.get(5)?;
         let created_at: String = row.get(6)?;
         let last_run_at: Option<String> = row.get(7)?;
-        let timezone: String = row.get::<_, Option<String>>(8)?.unwrap_or_else(|| "UTC".to_string());
-        let job_type = job_type_str.parse::<JobType>()
-            .map_err(AppError::Other)?;
-        jobs.push(ScheduledJob { id, name, job_type, target_id, cron_expr, timezone, enabled, created_at, last_run_at });
+        let timezone: String = row
+            .get::<_, Option<String>>(8)?
+            .unwrap_or_else(|| "UTC".to_string());
+        let job_type = job_type_str.parse::<JobType>().map_err(AppError::Other)?;
+        jobs.push(ScheduledJob {
+            id,
+            name,
+            job_type,
+            target_id,
+            cron_expr,
+            timezone,
+            enabled,
+            created_at,
+            last_run_at,
+        });
     }
     Ok(jobs)
 }
@@ -948,21 +1406,27 @@ fn exec_save_scheduled_job(conn: &Connection, job: &ScheduledJob) -> Result<(), 
     let sql = "INSERT OR REPLACE INTO _tdw.scheduled_jobs \
                (id, name, job_type, target_id, cron_expr, timezone, enabled, created_at, last_run_at) \
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
-    conn.execute(sql, duckdb::params![
-        job.id,
-        job.name,
-        job.job_type.as_str(),
-        job.target_id,
-        job.cron_expr,
-        job.timezone,
-        job.enabled,
-        job.created_at,
-        job.last_run_at,
-    ])?;
+    conn.execute(
+        sql,
+        duckdb::params![
+            job.id,
+            job.name,
+            job.job_type.as_str(),
+            job.target_id,
+            job.cron_expr,
+            job.timezone,
+            job.enabled,
+            job.created_at,
+            job.last_run_at,
+        ],
+    )?;
     Ok(())
 }
 
 fn exec_delete_scheduled_job(conn: &Connection, id: &str) -> Result<(), AppError> {
-    conn.execute("DELETE FROM _tdw.scheduled_jobs WHERE id = ?", duckdb::params![id])?;
+    conn.execute(
+        "DELETE FROM _tdw.scheduled_jobs WHERE id = ?",
+        duckdb::params![id],
+    )?;
     Ok(())
 }

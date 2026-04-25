@@ -4,21 +4,23 @@ mod cron_engine;
 pub mod db;
 pub mod error;
 mod file_io;
-mod metadata_yml;
 mod mcp;
+mod metadata_yml;
 pub mod scheduler;
 mod utils;
 
-use std::sync::Arc;
-use std::sync::atomic::AtomicBool;
 use cron_engine::CronEngine;
 use db::worker::DbWorker;
 use mcp::{McpLock, McpServerHandle};
 use notify::Watcher;
+use std::sync::atomic::AtomicBool;
+use std::sync::Arc;
 use tauri::{Emitter, Manager};
 
 #[tauri::command]
-async fn get_mcp_server_status(handle: tauri::State<'_, Arc<McpServerHandle>>) -> Result<bool, String> {
+async fn get_mcp_server_status(
+    handle: tauri::State<'_, Arc<McpServerHandle>>,
+) -> Result<bool, String> {
     Ok(handle.is_running().await)
 }
 
@@ -43,7 +45,13 @@ async fn restart_mcp_server(
     let db_clone = db.inner().clone();
     let active_clone = lock.0.clone();
     let handle_clone = handle.inner().clone();
-    tauri::async_runtime::spawn(mcp::run_mcp_server(db_clone, active_clone, home_str, app, handle_clone));
+    tauri::async_runtime::spawn(mcp::run_mcp_server(
+        db_clone,
+        active_clone,
+        home_str,
+        app,
+        handle_clone,
+    ));
     Ok(())
 }
 

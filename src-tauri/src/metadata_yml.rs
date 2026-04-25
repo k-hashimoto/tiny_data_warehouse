@@ -1,6 +1,6 @@
-use std::path::{Path, PathBuf};
-use serde::{Deserialize, Serialize};
 use crate::db::types::TableMeta;
+use serde::{Deserialize, Serialize};
+use std::path::{Path, PathBuf};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ColumnMetaYml {
@@ -36,11 +36,15 @@ pub fn write_table_meta_yml(home: &Path, meta: &TableMeta) -> Result<(), String>
         name: meta.table_name.clone(),
         schema: meta.schema_name.clone(),
         description: meta.comment.clone(),
-        columns: meta.columns.iter().map(|c| ColumnMetaYml {
-            name: c.name.clone(),
-            data_type: c.data_type.clone(),
-            description: c.comment.clone(),
-        }).collect(),
+        columns: meta
+            .columns
+            .iter()
+            .map(|c| ColumnMetaYml {
+                name: c.name.clone(),
+                data_type: c.data_type.clone(),
+                description: c.comment.clone(),
+            })
+            .collect(),
     };
 
     let content = serde_yaml::to_string(&yml_data).map_err(|e| e.to_string())?;
@@ -52,15 +56,27 @@ pub fn read_all_ymls(home: &Path) -> Vec<TableMetaYml> {
     let base = home.join(".tdwh").join("metadata").join("adhoc");
     let mut results = Vec::new();
 
-    let Ok(schemas) = std::fs::read_dir(&base) else { return results; };
+    let Ok(schemas) = std::fs::read_dir(&base) else {
+        return results;
+    };
     for schema_entry in schemas.flatten() {
-        if !schema_entry.file_type().is_ok_and(|t| t.is_dir()) { continue; }
-        let Ok(tables) = std::fs::read_dir(schema_entry.path()) else { continue; };
+        if !schema_entry.file_type().is_ok_and(|t| t.is_dir()) {
+            continue;
+        }
+        let Ok(tables) = std::fs::read_dir(schema_entry.path()) else {
+            continue;
+        };
         for table_entry in tables.flatten() {
             let path = table_entry.path();
-            if path.extension().and_then(|e| e.to_str()) != Some("yml") { continue; }
-            let Ok(content) = std::fs::read_to_string(&path) else { continue; };
-            let Ok(yml) = serde_yaml::from_str::<TableMetaYml>(&content) else { continue; };
+            if path.extension().and_then(|e| e.to_str()) != Some("yml") {
+                continue;
+            }
+            let Ok(content) = std::fs::read_to_string(&path) else {
+                continue;
+            };
+            let Ok(yml) = serde_yaml::from_str::<TableMetaYml>(&content) else {
+                continue;
+            };
             results.push(yml);
         }
     }
